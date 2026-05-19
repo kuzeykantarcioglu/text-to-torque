@@ -216,3 +216,48 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# External repos / third-party code
+external/
+
+# RL / ML logs
+logs/
+runs/
+wandb/
+tensorboard/
+outputs/
+
+# Checkpoints / trained models
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Generated motion / array / dataset files
+*.npz
+*.npy
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+
+# Rollout videos / media
+*.mp4
+*.mov
+*.avi
+*.gif
+
+# Heavy experiment artifacts
+results/videos/
+results/checkpoints/
+experiments/**/logs/
+experiments/**/checkpoints/
+experiments/**/videos/
+
+# Modal / cloud artifacts
+.modal/
+modal_volume/
+
+# macOS
+.DS_Store
