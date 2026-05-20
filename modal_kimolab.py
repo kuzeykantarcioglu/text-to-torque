@@ -100,7 +100,7 @@ def _run(command: list[str], cwd: str, env: dict[str, str] | None = None) -> Non
 @app.function(
     image=image,
     volumes={"/outputs": volume},
-    secrets=[modal.Secret.from_name("huggingface")],
+    secrets=[modal.Secret.from_name("huggingface"), modal.Secret.from_name("wandb")],
     gpu="L4",
     timeout=60 * 60 * 8,
 )
@@ -133,7 +133,7 @@ def kimolab_bringup(
             "modal secret create huggingface HF_TOKEN=<your_token>"
         )
     os.environ["MUJOCO_GL"] = "egl"
-    os.environ.setdefault("WANDB_MODE", "disabled")
+    os.environ.setdefault("WANDB_MODE", "online")
     os.environ.setdefault("HF_HOME", "/outputs/cache/huggingface")
 
     os.environ["UV_CACHE_DIR"] = "/tmp/uv-cache"
@@ -243,7 +243,7 @@ def kimolab_bringup(
             "--env.episode-length-s",
             str(episode_length_s),
             "--agent.logger",
-            "tensorboard",
+            "wandb",
             "--agent.run-name",
             run_id,
             "--agent.max-iterations",
