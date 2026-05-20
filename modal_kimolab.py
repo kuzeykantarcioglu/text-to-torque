@@ -112,11 +112,15 @@ def kimolab_bringup(
             "HF_TOKEN is not set. Create a Modal secret first with: "
             "modal secret create huggingface HF_TOKEN=<your_token>"
         )
-
     os.environ["MUJOCO_GL"] = "egl"
     os.environ.setdefault("WANDB_MODE", "disabled")
     os.environ.setdefault("HF_HOME", "/outputs/cache/huggingface")
-    os.environ.setdefault("XDG_CACHE_HOME", "/outputs/cache")
+
+    os.environ["UV_CACHE_DIR"] = "/tmp/uv-cache"
+    os.environ["XDG_CACHE_HOME"] = "/tmp/xdg-cache"
+
+    Path("/tmp/uv-cache").mkdir(parents=True, exist_ok=True)
+    Path("/tmp/xdg-cache").mkdir(parents=True, exist_ok=True)
 
     subprocess.run(["nvidia-smi"], check=True)
 
