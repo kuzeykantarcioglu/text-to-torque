@@ -73,6 +73,7 @@ mkdir -p external
 cd external
 git clone https://github.com/unitreerobotics/unitree_rl_mjlab.git
 cd ..
+```
 
 ## 7. Project Structure
 
