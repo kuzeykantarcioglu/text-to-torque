@@ -48,8 +48,9 @@ volume = modal.Volume.from_name("text-to-torque-results", create_if_missing=True
 @app.function(
     image=image,
     volumes={"/outputs": volume},
+    secrets=[modal.Secret.from_name("wandb")],
     gpu="L4",
-    timeout=60 * 20,
+    timeout=60 * 60,
 )
 def train_start_test():
     subprocess.run(["nvidia-smi"], check=True)
