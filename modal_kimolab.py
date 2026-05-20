@@ -193,7 +193,7 @@ def kimolab_bringup(
             "--device",
             "cuda:0",
         ],
-        cwd=str(work_dir),
+        cwd=KIMOLAB_DIR,
     )
 
     tmp_npz = Path("/tmp/motion.npz")
