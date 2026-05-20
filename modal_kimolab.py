@@ -45,7 +45,22 @@ image = (
     .run_commands(
         "git clone --depth 1 --branch kimolab "
         "https://github.com/Sentdex/kimolab.git /root/kimolab",
+
         "cd /root/kimolab && rm -f uv.lock && uv sync --extra kimodo --extra cu128 --no-dev",
+
+        "cd /root/kimolab && uv pip uninstall --python /root/kimolab/.venv/bin/python "
+        "mujoco mujoco-warp warp-lang || true",
+
+        "cd /root/kimolab && uv pip install --python /root/kimolab/.venv/bin/python "
+        "--extra-index-url https://py.mujoco.org/mujoco --pre --no-deps "
+        "'mujoco' 'mujoco-warp'",
+
+        "cd /root/kimolab && uv pip install --python /root/kimolab/.venv/bin/python "
+        "--force-reinstall 'warp-lang==1.12.0'",
+
+        "cd /root/kimolab && uv pip install --python /root/kimolab/.venv/bin/python "
+        "--reinstall --index-url https://download.pytorch.org/whl/cu128 torchvision",
+
         "cd /root/kimolab && /root/kimolab/.venv/bin/python -c "
         "\"import mujoco, torch, warp; "
         "print('mujoco', mujoco.__version__); "
@@ -56,13 +71,6 @@ image = (
 
         "cd /root/kimolab && /root/kimolab/.venv/bin/python -c "
         "\"import mujoco_warp; print('mujoco_warp import ok')\"",
-        "\"import mujoco, torch, warp; "
-        "print('mujoco', mujoco.__version__); "
-        "print('torch cuda', torch.version.cuda); "
-        "print('warp', warp.__version__); "
-        "print('has context', hasattr(warp, 'context')); "
-        "print('has conditional graph', hasattr(warp, 'is_conditional_graph_supported'))\"",
-        "cd /root/kimolab && uv run python -c \"import mujoco_warp; print('mujoco_warp import ok')\"",
     )
 )
 
@@ -167,8 +175,6 @@ def kimolab_bringup(
 
     _run(
         [
-            "uv",
-            "run",
             "/root/kimolab/.venv/bin/prompt-to-csv",
             "--prompt",
             prompt,
