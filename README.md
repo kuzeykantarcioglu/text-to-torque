@@ -211,47 +211,35 @@ logs/
 checkpoints/
 ```
 
-## Useful Commands
-
-Activate the environment:
+## Quick Reference
 
 ```bash
-conda activate text-to-torque
-```
+# Generate motion only
+modal run modal_kimolab.py --prompt "A person walks forward"
 
-For a fresh terminal session:
+# Generate + train (detached)
+modal run --detach modal_kimolab.py --prompt "A person walks forward" --train
 
-```bash
-conda activate text-to-torque
-set -a
-source .env
-set +a
-```
+# Generate + train + record video + wandb
+modal run --detach modal_kimolab.py --prompt "A person walks forward" --train --record-train-video
 
-Check that Python and pip are using the conda environment:
+# Key training flags
+#   --max-iterations 20      PPO iterations (default 20)
+#   --num-envs 128           parallel envs (default 128)
+#   --save-interval 10       checkpoint every N iters
+#   --disable-terminations   relax early termination (default True)
+#   --duration 4.0           motion length in seconds
+#   --seed 0                 random seed
 
-```bash
-which python
-which pip
-python -m pip --version
-```
+# List outputs on Modal volume
+modal volume ls text-to-torque-results kimolab
 
-Run a Modal script:
+# List a specific run
+modal volume ls text-to-torque-results kimolab/<run_id>
 
-```bash
-modal run <script_name>.py
-```
+# Download a run locally
+modal volume get text-to-torque-results kimolab/<run_id> ./motions/from_modal/kimolab/<run_id>
 
-Run a Modal script detached:
-
-```bash
-modal run --detach <script_name>.py
-```
-
-Commit changes:
-
-```bash
-git add .
-git commit -m "Update README"
-git push
+# Fresh terminal setup
+conda activate text-to-torque && set -a && source .env && set +a
 ```
