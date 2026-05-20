@@ -46,8 +46,16 @@ image = (
         "git clone --depth 1 --branch kimolab "
         "https://github.com/Sentdex/kimolab.git /root/kimolab",
         "cd /root/kimolab && rm -f uv.lock && uv sync --extra kimodo --extra cu128 --no-dev",
-        "cd /root/kimolab && uv pip install --force-reinstall 'mujoco==3.5.0' 'warp-lang==1.12.0'",
-        "cd /root/kimolab && uv run python -c "
+        "cd /root/kimolab && /root/kimolab/.venv/bin/python -c "
+        "\"import mujoco, torch, warp; "
+        "print('mujoco', mujoco.__version__); "
+        "print('torch cuda', torch.version.cuda); "
+        "print('warp', warp.__version__); "
+        "print('has context', hasattr(warp, 'context')); "
+        "print('has conditional graph', hasattr(warp, 'is_conditional_graph_supported'))\"",
+
+        "cd /root/kimolab && /root/kimolab/.venv/bin/python -c "
+        "\"import mujoco_warp; print('mujoco_warp import ok')\"",
         "\"import mujoco, torch, warp; "
         "print('mujoco', mujoco.__version__); "
         "print('torch cuda', torch.version.cuda); "
@@ -161,7 +169,7 @@ def kimolab_bringup(
         [
             "uv",
             "run",
-            "prompt-to-csv",
+            "/root/kimolab/.venv/bin/prompt-to-csv",
             "--prompt",
             prompt,
             "--duration",
@@ -180,8 +188,7 @@ def kimolab_bringup(
 
     _run(
         [
-            "uv",
-            "run",
+            "/root/kimolab/.venv/bin/python",
             "-m",
             "mjlab.scripts.csv_to_npz",
             "--input-file",
@@ -221,9 +228,7 @@ def kimolab_bringup(
     if train:
         episode_length_s = duration + 1.0
         train_cmd = [
-            "uv",
-            "run",
-            "train",
+            "/root/kimolab/.venv/bin/train",
             "Mjlab-Tracking-Flat-Unitree-G1",
             "--env.commands.motion.motion-file",
             str(npz_path),
