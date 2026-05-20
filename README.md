@@ -23,29 +23,64 @@ We generate text-specified humanoid reference motions, train reinforcement learn
 ## Repository Structure
 
 ```text
-external/      External repos and dependencies
+external/      External repos for local inspection only
 scripts/       Project scripts and diagnostics
 configs/       Experiment configs
 experiments/   Per-run notes and metadata
-results/       Figures, tables, and videos
+results/       Figures, tables, and small result files
 motions/       Generated or processed motion files
 ```
 
+Large files such as checkpoints, logs, rollout videos, and generated motion arrays should not be committed to git.
+
 ## Local Setup
 
-The Mac/local environment is for editing code, launching Modal jobs, and analyzing results. KimoLab generation and PPO training should run on Modal or another Linux NVIDIA GPU machine.
+The local environment is used for editing code, launching Modal jobs, logging experiments, and analyzing results. KimoLab generation and PPO training should run on Modal or another Linux NVIDIA GPU machine, not locally on macOS.
 
-Create and activate the local environment:
+Create and activate the conda environment:
 
 ```bash
-cd "/Users/benji/Documents/CS224R Project/text-to-torque"
-
 conda create -n text-to-torque python=3.11 -y
 conda activate text-to-torque
+```
 
+Install local dependencies:
+
+```bash
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install modal wandb numpy pandas matplotlib scipy pyyaml tqdm rich ipython jupyter black ruff pytest
 ```
+
+Verify the local environment:
+
+```bash
+python --version
+python -m pip --version
+python -c "import modal, wandb, numpy, pandas, matplotlib, yaml, tqdm; print('local env good')"
+```
+
+Set up Modal:
+
+```bash
+modal setup
+modal --version
+```
+
+## Environment Variables and Secrets
+
+Create a local `.env` file for secrets:
+
+```bash
+touch .env
+```
+
+Add your Hugging Face token:
+
+```bash
+HF_TOKEN=<your_huggingface_token>
+```
+
+Do not commit `.env` to git.
 
 Load local environment variables:
 
@@ -55,49 +90,168 @@ source .env
 set +a
 ```
 
-Verify the local install:
+Create the Hugging Face Modal secret:
 
 ```bash
-python -c "import modal, wandb, numpy; print('local env good')"
-modal --version
-```
-
-Set up Modal if needed:
-
-```bash
-modal setup
-```
-
-## KimoLab Modal Bring-Up
-
-Fill in `HF_TOKEN=` in `.env`. The token must have access to Meta-Llama-3-8B-Instruct on Hugging Face.
-
-Create the Modal secret:
-
-```bash
-set -a
-source .env
-set +a
-
 modal secret create huggingface HF_TOKEN="$HF_TOKEN"
 ```
 
-Run the default reference-motion bring-up:
+For W&B logging, log in locally:
+
+```bash
+wandb login
+wandb --version
+```
+
+Create a W&B Modal secret if cloud training jobs need to log to W&B:
+
+```bash
+modal secret create wandb WANDB_API_KEY=<your_wandb_api_key>
+```
+
+## External Repo for Local Inspection
+
+The external Unitree/mjlab repo is used as the underlying MuJoCo / Unitree G1 training pipeline. It is cloned locally only for reading code and debugging.
+
+```bash
+mkdir -p external
+cd external
+git clone https://github.com/unitreerobotics/unitree_rl_mjlab.git
+cd ..
+```
+
+The `external/` directory is ignored by git. Modal jobs clone and install external repositories inside the cloud image.
+
+## KimoLab Modal Bring-Up
+
+Run the default reference-motion generation job:
 
 ```bash
 modal run modal_kimolab.py
 ```
 
+Run generation only with a custom prompt:
+
+```bash
+modal run modal_kimolab.py \
+  --prompt "A person walks forward" \
+  --duration 4.0 \
+  --seed 0 \
+  --diffusion-steps 25 \
+  --output-fps 50 \
+  --render-reference \
+  --no-train
+```
+
 Run a tiny PPO debug job:
 
 ```bash
-modal run modal_kimolab.py --train --num-envs 128 --max-iterations 20 --record-train-video
+modal run modal_kimolab.py \
+  --prompt "A person walks forward" \
+  --duration 4.0 \
+  --seed 0 \
+  --diffusion-steps 25 \
+  --output-fps 50 \
+  --render-reference \
+  --train \
+  --num-envs 128 \
+  --max-iterations 20 \
+  --save-interval 10 \
+  --disable-terminations \
+  --record-train-video
+```
+
+For longer jobs, use detached mode:
+
+```bash
+modal run --detach modal_kimolab.py --train
+```
+
+## Downloading Modal Outputs
+
+Generated motions, videos, logs, and checkpoints are saved to the Modal Volume:
+
+```text
+text-to-torque-results
+```
+
+List files in the volume:
+
+```bash
+modal volume ls text-to-torque-results
+```
+
+List KimoLab outputs:
+
+```bash
+modal volume ls text-to-torque-results kimolab
+```
+
+Download KimoLab outputs locally:
+
+```bash
+mkdir -p motions/from_modal
+modal volume get text-to-torque-results kimolab motions/from_modal
+```
+
+Download a specific run:
+
+```bash
+modal volume get text-to-torque-results kimolab/<run_id> motions/from_modal/<run_id>
+```
+
+Typical generated artifacts include:
+
+```text
+metadata.json
+motion.csv
+motion.npz
+reference_motion.mp4
+logs/
+checkpoints/
+```
+
+## Useful Commands
+
+Activate the environment:
+
+```bash
+conda activate text-to-torque
 ```
 
 For a fresh terminal session:
 
 ```bash
 conda activate text-to-torque
-cd "/Users/benji/Documents/CS224R Project/text-to-torque"
-set -a; source .env; set +a
+set -a
+source .env
+set +a
+```
+
+Check that Python and pip are using the conda environment:
+
+```bash
+which python
+which pip
+python -m pip --version
+```
+
+Run a Modal script:
+
+```bash
+modal run <script_name>.py
+```
+
+Run a Modal script detached:
+
+```bash
+modal run --detach <script_name>.py
+```
+
+Commit changes:
+
+```bash
+git add .
+git commit -m "Update README"
+git push
 ```
