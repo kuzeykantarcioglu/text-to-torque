@@ -46,11 +46,15 @@ image = (
         "git clone --depth 1 --branch kimolab "
         "https://github.com/Sentdex/kimolab.git /root/kimolab",
         "cd /root/kimolab && rm -f uv.lock && uv sync --extra kimodo --extra cu128 --no-dev",
+        "cd /root/kimolab && uv pip install --force-reinstall 'mujoco==3.5.0' 'warp-lang==1.12.0'",
         "cd /root/kimolab && uv run python -c "
         "\"import mujoco, torch, warp; "
         "print('mujoco', mujoco.__version__); "
         "print('torch cuda', torch.version.cuda); "
-        "print('warp', warp.__version__)\"",
+        "print('warp', warp.__version__); "
+        "print('has context', hasattr(warp, 'context')); "
+        "print('has conditional graph', hasattr(warp, 'is_conditional_graph_supported'))\"",
+        "cd /root/kimolab && uv run python -c \"import mujoco_warp; print('mujoco_warp import ok')\"",
     )
 )
 
