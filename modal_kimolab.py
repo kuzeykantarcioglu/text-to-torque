@@ -266,6 +266,7 @@ def kimolab_bringup(
             train_cmd.extend(
                 [
                     "--video",
+                    "True",
                     "--video-length",
                     str(train_video_length),
                     "--video-interval",
