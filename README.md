@@ -167,6 +167,13 @@ For longer jobs, use detached mode:
 modal run --detach modal_kimolab.py --train
 ```
 
+During training, `modal_kimolab.py` periodically syncs `logs/` to the Modal
+Volume so checkpoints and train videos survive a local terminal disconnect or a
+later cancellation. Control this cadence with `--artifact-sync-interval-s`
+(default: `120` seconds). This only controls persistence; checkpoint frequency
+is still controlled by `--save-interval`, and train video frequency is still
+controlled by `--train-video-interval`.
+
 ## Downloading Modal Outputs
 
 Generated motions, videos, logs, and checkpoints are saved to the Modal Volume:
@@ -227,6 +234,8 @@ modal run --detach modal_kimolab.py --prompt "A person walks forward" --train --
 #   --max-iterations 20      PPO iterations (default 20)
 #   --num-envs 128           parallel envs (default 128)
 #   --save-interval 10       checkpoint every N iters
+#   --artifact-sync-interval-s 120
+#                            copy logs/checkpoints/videos to the Modal volume
 #   --disable-terminations   relax early termination (default True)
 #   --duration 4.0           motion length in seconds
 #   --seed 0                 random seed

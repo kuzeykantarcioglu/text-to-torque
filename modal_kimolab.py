@@ -97,11 +97,128 @@ def _run(command: list[str], cwd: str, env: dict[str, str] | None = None) -> Non
     subprocess.run(command, cwd=cwd, env=merged_env, check=True)
 
 
+def _copy_tree_incremental(
+    source_dir: object,
+    destination_dir: object,
+    min_age_seconds: float = 0.0,
+) -> int:
+    import os
+    import shutil
+    import time
+    from pathlib import Path
+
+    source = Path(source_dir)
+    destination = Path(destination_dir)
+    if not source.exists():
+        return 0
+
+    copied = 0
+    now = time.time()
+    for source_path in source.rglob("*"):
+        try:
+            relative_path = source_path.relative_to(source)
+            destination_path = destination / relative_path
+
+            if source_path.is_dir():
+                destination_path.mkdir(parents=True, exist_ok=True)
+                continue
+            if not source_path.is_file():
+                continue
+
+            source_stat = source_path.stat()
+            if min_age_seconds and now - source_stat.st_mtime < min_age_seconds:
+                continue
+
+            try:
+                destination_stat = destination_path.stat()
+                already_current = (
+                    destination_stat.st_size == source_stat.st_size
+                    and destination_stat.st_mtime >= source_stat.st_mtime
+                )
+                if already_current:
+                    continue
+            except FileNotFoundError:
+                pass
+
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = destination_path.with_name(
+                f".{destination_path.name}.tmp.{os.getpid()}"
+            )
+            shutil.copy2(source_path, temporary_path)
+            temporary_path.replace(destination_path)
+            copied += 1
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            print(f"[WARN] Could not sync {source_path}: {exc}", flush=True)
+
+    return copied
+
+
+def _run_with_periodic_sync(
+    command: list[str],
+    cwd: str,
+    sync_callback: object,
+    sync_interval_s: int,
+    env: dict[str, str] | None = None,
+) -> None:
+    import os
+    import shlex
+    import subprocess
+    import time
+
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
+    print(f"$ {shlex.join(command)}", flush=True)
+    process = subprocess.Popen(command, cwd=cwd, env=merged_env)
+    last_sync = 0.0
+    sync_interval_s = max(10, sync_interval_s)
+
+    def sync(stage: str, min_age_seconds: float) -> None:
+        try:
+            copied = sync_callback(stage, min_age_seconds)
+            print(
+                f"[INFO] Artifact sync stage={stage} copied_files={copied}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[WARN] Artifact sync failed during {stage}: {exc}", flush=True)
+
+    try:
+        while True:
+            return_code = process.poll()
+            now = time.monotonic()
+            if now - last_sync >= sync_interval_s:
+                sync("training_running", min_age_seconds=5.0)
+                last_sync = now
+
+            if return_code is not None:
+                break
+
+            time.sleep(min(5.0, float(sync_interval_s)))
+    except BaseException:
+        sync("training_interrupted", min_age_seconds=0.0)
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise
+
+    sync("training_complete" if return_code == 0 else "training_failed", 0.0)
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, command)
+
+
 @app.function(
     image=image,
     volumes={"/outputs": volume},
     secrets=[modal.Secret.from_name("huggingface"), modal.Secret.from_name("wandb")],
-    gpu="L4",
+    gpu="A100-40GB",
     timeout=60 * 60 * 8,
 )
 def kimolab_bringup(
@@ -119,6 +236,7 @@ def kimolab_bringup(
     record_train_video: bool,
     train_video_length: int,
     train_video_interval: int,
+    artifact_sync_interval_s: int,
 ) -> dict[str, object]:
     import json
     import os
@@ -152,7 +270,11 @@ def kimolab_bringup(
 
     csv_path = work_dir / "motion.csv"
     npz_path = work_dir / "motion.npz"
-    reference_video_path = work_dir / "motion.mp4"
+    reference_video_candidates = [
+        work_dir / "motion.mp4",
+        Path(KIMOLAB_DIR) / "motion.mp4",
+        Path("/tmp/motion.mp4"),
+    ]
     metadata_path = output_dir / "metadata.json"
 
     metadata: dict[str, object] = {
@@ -169,6 +291,9 @@ def kimolab_bringup(
         "save_interval": save_interval,
         "disable_terminations": disable_terminations,
         "record_train_video": record_train_video,
+        "train_video_length": train_video_length,
+        "train_video_interval": train_video_interval,
+        "artifact_sync_interval_s": artifact_sync_interval_s,
         "stage": "started",
     }
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
@@ -220,8 +345,10 @@ def kimolab_bringup(
 
     shutil.copy2(csv_path, output_dir / "motion.csv")
     shutil.copy2(npz_path, output_dir / "motion.npz")
-    if render_reference and reference_video_path.exists():
-        shutil.copy2(reference_video_path, output_dir / "reference_motion.mp4")
+    for reference_video_path in reference_video_candidates:
+        if render_reference and reference_video_path.exists():
+            shutil.copy2(reference_video_path, output_dir / "reference_motion.mp4")
+            break
 
     metadata["stage"] = "reference_ready"
     metadata["csv"] = "motion.csv"
@@ -274,11 +401,36 @@ def kimolab_bringup(
                 ]
             )
 
-        _run(train_cmd, cwd=str(work_dir))
-
         logs_dir = work_dir / "logs"
-        if logs_dir.exists():
-            shutil.copytree(logs_dir, output_dir / "logs", dirs_exist_ok=True)
+
+        def sync_training_artifacts(
+            stage: str,
+            min_age_seconds: float = 0.0,
+        ) -> int:
+            copied = _copy_tree_incremental(
+                logs_dir,
+                output_dir / "logs",
+                min_age_seconds=min_age_seconds,
+            )
+            if logs_dir.exists():
+                metadata["logs"] = "logs"
+            metadata["stage"] = stage
+            metadata["last_artifact_sync_unix"] = time.time()
+            metadata["last_artifact_sync_copied_files"] = copied
+            metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+            volume.commit()
+            return copied
+
+        try:
+            _run_with_periodic_sync(
+                train_cmd,
+                cwd=str(work_dir),
+                sync_callback=sync_training_artifacts,
+                sync_interval_s=artifact_sync_interval_s,
+            )
+        except BaseException:
+            sync_training_artifacts("training_interrupted", min_age_seconds=0.0)
+            raise
 
         metadata["stage"] = "training_complete"
         metadata["episode_length_s"] = episode_length_s
@@ -316,6 +468,7 @@ def main(
     record_train_video: bool = False,
     train_video_length: int = 200,
     train_video_interval: int = 10,
+    artifact_sync_interval_s: int = 120,
 ) -> None:
     result = kimolab_bringup.remote(
         prompt=prompt,
@@ -332,5 +485,6 @@ def main(
         record_train_video=record_train_video,
         train_video_length=train_video_length,
         train_video_interval=train_video_interval,
+        artifact_sync_interval_s=artifact_sync_interval_s,
     )
     print(result)
