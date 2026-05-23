@@ -101,7 +101,7 @@ def _run(command: list[str], cwd: str, env: dict[str, str] | None = None) -> Non
     image=image,
     volumes={"/outputs": volume},
     secrets=[modal.Secret.from_name("huggingface"), modal.Secret.from_name("wandb")],
-    gpu="L4",
+    gpu="A100",
     timeout=60 * 60 * 8,
 )
 def kimolab_bringup(
@@ -119,6 +119,7 @@ def kimolab_bringup(
     record_train_video: bool,
     train_video_length: int,
     train_video_interval: int,
+    artifact_sync_interval_s: float,
 ) -> dict[str, object]:
     import json
     import os
@@ -212,6 +213,21 @@ def kimolab_bringup(
         ],
         cwd=KIMOLAB_DIR,
     )
+    video_candidates = []
+    for search_dir in [work_dir, Path("/root/kimolab"), Path("/tmp")]:
+        if search_dir.exists():
+            video_candidates.extend(search_dir.rglob("*.mp4"))
+            video_candidates.extend(search_dir.rglob("*.mov"))
+            video_candidates.extend(search_dir.rglob("*.gif"))
+
+    print("Found video candidates:")
+    for path in video_candidates:
+        print(path)
+
+    if render_reference and video_candidates:
+        # Use most recently modified video.
+        latest_video = max(video_candidates, key=lambda p: p.stat().st_mtime)
+        shutil.copy2(latest_video, output_dir / "reference_motion.mp4")
 
     tmp_npz = Path("/tmp/motion.npz")
     if not tmp_npz.exists():
@@ -220,9 +236,6 @@ def kimolab_bringup(
 
     shutil.copy2(csv_path, output_dir / "motion.csv")
     shutil.copy2(npz_path, output_dir / "motion.npz")
-    if render_reference and reference_video_path.exists():
-        shutil.copy2(reference_video_path, output_dir / "reference_motion.mp4")
-
     metadata["stage"] = "reference_ready"
     metadata["csv"] = "motion.csv"
     metadata["npz"] = "motion.npz"
@@ -250,6 +263,10 @@ def kimolab_bringup(
             str(max_iterations),
             "--agent.save-interval",
             str(save_interval),
+            "--env.sim.njmax",
+            "512",
+            "--env.sim.contact-sensor-maxmatch",
+            "128",
         ]
         if disable_terminations:
             train_cmd.extend(
@@ -265,8 +282,7 @@ def kimolab_bringup(
         if record_train_video:
             train_cmd.extend(
                 [
-                    "--video",
-                    "True",
+                    "--video", "True",
                     "--video-length",
                     str(train_video_length),
                     "--video-interval",
@@ -274,12 +290,48 @@ def kimolab_bringup(
                 ]
             )
 
-        _run(train_cmd, cwd=str(work_dir))
+        # Periodic sync of training artifacts to Modal volume
+        import threading
+
+        stop_sync = threading.Event()
+
+        def _do_sync():
+            logs_dir = work_dir / "logs"
+            print(f"[sync] checking {logs_dir} exists={logs_dir.exists()}", flush=True)
+            if logs_dir.exists():
+                # List what we're syncing
+                file_count = sum(1 for _ in logs_dir.rglob("*") if _.is_file())
+                print(f"[sync] copying {file_count} files to volume...", flush=True)
+                shutil.copytree(logs_dir, output_dir / "logs", dirs_exist_ok=True)
+                volume.commit()
+                print(f"[sync] committed to volume", flush=True)
+            else:
+                # Check what dirs exist in work_dir
+                subdirs = [p.name for p in work_dir.iterdir()] if work_dir.exists() else []
+                print(f"[sync] logs dir not found. work_dir contents: {subdirs}", flush=True)
+
+        def _sync_loop():
+            while not stop_sync.wait(artifact_sync_interval_s):
+                try:
+                    _do_sync()
+                except Exception as e:
+                    print(f"[sync] error: {e}", flush=True)
+
+        if artifact_sync_interval_s > 0:
+            sync_thread = threading.Thread(target=_sync_loop, daemon=True)
+            sync_thread.start()
+
+        try:
+            _run(train_cmd, cwd=str(work_dir))
+        finally:
+            stop_sync.set()
+            # Always do a final sync, even on crash/cancellation
+            try:
+                _do_sync()
+            except Exception as e:
+                print(f"[sync] final sync error: {e}", flush=True)
 
         logs_dir = work_dir / "logs"
-        if logs_dir.exists():
-            shutil.copytree(logs_dir, output_dir / "logs", dirs_exist_ok=True)
-
         metadata["stage"] = "training_complete"
         metadata["episode_length_s"] = episode_length_s
         if logs_dir.exists():
@@ -316,6 +368,7 @@ def main(
     record_train_video: bool = False,
     train_video_length: int = 200,
     train_video_interval: int = 10,
+    artifact_sync_interval_s: float = 0,
 ) -> None:
     result = kimolab_bringup.remote(
         prompt=prompt,
@@ -332,5 +385,6 @@ def main(
         record_train_video=record_train_video,
         train_video_length=train_video_length,
         train_video_interval=train_video_interval,
+        artifact_sync_interval_s=artifact_sync_interval_s,
     )
     print(result)
