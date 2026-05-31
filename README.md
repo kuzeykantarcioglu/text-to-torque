@@ -352,3 +352,38 @@ figures/final_squat_termination_curves.png
 figures/final_video_contact_sheet.png
 figures/final_walk_curriculum_curves.png
 ```
+
+Create additional poster/report visual panels and copy renamed local rollout
+videos:
+
+```bash
+python scripts/make_visual_assets.py
+```
+
+This writes:
+
+```text
+figures/final_walk_sequence_panel.png
+figures/final_squat_sequence_panel.png
+figures/final_gesture_sequence_panel.png
+media/final_videos/*.mp4
+```
+
+The MP4 files are ignored by git and should be shared separately if needed.
+
+## Final Report Draft
+
+The LaTeX final report draft is:
+
+```text
+paper/final_report.tex
+```
+
+It uses the generated figures under `figures/`. A local LaTeX distribution is
+needed to compile it, for example:
+
+```bash
+cd paper
+pdflatex final_report.tex
+pdflatex final_report.tex
+```

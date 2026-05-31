@@ -1,0 +1,259 @@
+\documentclass[10pt]{article}
+
+\usepackage[margin=0.85in]{geometry}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{xcolor}
+
+\graphicspath{{../figures/}{figures/}}
+
+\title{\vspace{-1.0cm}From Text to Torque: Improving RL Tracking of Text-Generated Humanoid Motions}
+\author{
+Kuzey Kantarcioglu \\
+\texttt{kuzey@stanford.edu}
+\and
+Benji Warburton \\
+\texttt{benjiw@stanford.edu}
+}
+\date{CS224R Final Project}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Text-to-motion models can generate plausible humanoid kinematics from natural language, but a visually plausible kinematic trajectory is not necessarily dynamically feasible for a torque-controlled robot. We study this interface using KimoLab, which connects Kimodo text-conditioned motion generation to MuJoCo/MuJoCo Warp PPO tracking for the Unitree G1 humanoid. Our project asks which generated reference motions are learnable by downstream PPO tracking and whether relaxed termination thresholds or a simple termination curriculum can improve learning on difficult references. We generate four representative motions, compute pre-training motion diagnostics, and train PPO policies under loose, strict, and curriculum termination settings. In our small prompt suite, strict termination works well for gesture-like motions and mostly works for walking, but fails severely for a squat motion with large root-height variation: the strict squat policy terminates after about 13.5 steps on average, while the loose-termination squat policy reaches the full 250-step horizon. A two-stage walk curriculum runs successfully but does not outperform strict training from scratch. These results suggest that termination design is a major part of the failure boundary between text-generated kinematic references and physically executable humanoid control.
+\end{abstract}
+
+\section{Introduction}
+
+Language-conditioned robotics systems ultimately need to translate high-level text commands into physically stable low-level behavior. Recent text-to-motion models make the first part of this pipeline increasingly practical: given prompts such as ``walk forward'' or ``squat down and stand up,'' they can synthesize full-body humanoid motion trajectories. However, these trajectories are usually kinematic. They may ignore torque limits, contact timing, balance, self-collisions, and the fact that a controller must recover from tracking error in simulation.
+
+This project studies the gap between generated kinematic motion and reinforcement-learned humanoid control. We use KimoLab as an end-to-end testbed: Kimodo generates Unitree G1 reference motions from text, KimoLab converts them into MuJoCo reference trajectories, and PPO trains policies to track those references. Rather than treating the pipeline as only a demo, we ask when and why the tracking stage succeeds or fails.
+
+Our main research question is:
+\begin{quote}
+Which properties of a text-generated reference motion determine whether PPO can learn a stable tracking policy, and can relaxed or curriculum termination settings improve learning on difficult generated motions?
+\end{quote}
+
+We focus on a practical empirical result rather than state-of-the-art performance. The core contribution is a small but complete study of the failure boundary between text-generated reference motions and dynamically feasible humanoid tracking.
+
+\section{Related Work}
+
+Our project builds on text-conditioned motion generation, physics-based motion imitation, and reinforcement learning for humanoid control. Kimodo is a recent controllable kinematic motion generation system that supports natural-language generation for multiple skeletons, including the Unitree G1 humanoid robot \cite{kimodo,kimodo_github}. KimoLab connects Kimodo-generated motions to MuJoCo/MuJoCo Warp tracking experiments \cite{kimolab,mujoco,mujocowarp}. This makes it useful for studying text-to-physics pipelines with real robot morphologies.
+
+Physics-based character imitation methods such as DeepMimic show that deep RL can learn agile simulated behaviors from reference motion clips \cite{deepmimic}. Adversarial Motion Priors extend this idea by learning a motion prior from datasets, reducing reliance on hand-designed imitation rewards \cite{amp}. These methods typically assume curated or motion-capture reference data. In contrast, our references are generated automatically from text and may contain artifacts that make downstream tracking harder.
+
+We use PPO as the tracking optimizer, following its broad use in continuous-control RL and robotics \cite{ppo}. Our focus is not on changing PPO itself, but on understanding how generated reference quality and episode termination interact with PPO learning.
+
+\section{Method}
+
+\subsection{Pipeline}
+
+The experimental pipeline is:
+\[
+\text{text prompt} \rightarrow \text{Kimodo CSV motion} \rightarrow \text{MuJoCo NPZ reference} \rightarrow \text{PPO tracking policy}.
+\]
+
+All final experiments used 4 second motions, resampled to 50 Hz, with PPO training in MuJoCo Warp on Modal GPUs. Training used 1024 parallel environments and 2000 PPO iterations unless otherwise noted. Each policy was trained to track the generated reference motion for the Unitree G1 humanoid.
+
+\subsection{Reference-Motion Diagnostics}
+
+Before training, we compute simple diagnostics from the generated reference trajectories:
+\begin{itemize}
+    \item root height range,
+    \item maximum root speed,
+    \item maximum root acceleration,
+    \item maximum joint velocity and acceleration,
+    \item rollout artifact counts, including checkpoints and videos.
+\end{itemize}
+
+These diagnostics are intentionally simple. They are meant to test whether cheap pre-training measurements can identify references that are likely to be difficult for PPO tracking.
+
+\subsection{Termination Conditions}
+
+We compare three termination settings:
+\begin{itemize}
+    \item \textbf{Loose}: large tracking-deviation thresholds, so the policy can experience the full reference even when tracking is poor early in training.
+    \item \textbf{Strict}: standard tighter tracking-deviation thresholds, so episodes end when the robot deviates too far from the reference.
+    \item \textbf{Curriculum}: a two-stage schedule used for walking: 1000 iterations with loose thresholds, then resume from that checkpoint for 1000 iterations with strict thresholds.
+\end{itemize}
+
+The motivation is that strict termination can be useful once a policy is competent, but harmful if it ends episodes before the policy observes enough of the motion to improve.
+
+\section{Experiments}
+
+We evaluate four prompts:
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Motion & Prompt & Main role \\
+\midrule
+Walk & A person walks forward & Locomotion baseline \\
+Wave & A person waves with their right hand & Easy upper-body gesture \\
+Tap head & A person taps themselves on the head & Easy upper-body gesture \\
+Squat & A person squats down and stands up & Large root-height change \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The main quantitative metrics are final reward, mean episode length, body-position tracking error, joint-position tracking error, and termination counts. We also save training videos and checkpoints throughout training. Episode length is crucial when comparing termination settings, because low tracking error over very short episodes can be misleading.
+
+\section{Results}
+
+\subsection{Reference Diagnostics}
+
+Figure~\ref{fig:diagnostics} shows the pre-training diagnostics. The prompts differ in intuitive ways: squat has the largest root-height range, walk has the highest root speed, and wave has high joint acceleration despite being easy to track. This means that high joint acceleration alone is not sufficient to predict failure. In this suite, large vertical/root motion combined with strict termination is a stronger warning sign.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_reference_diagnostics.png}
+    \caption{Reference-motion diagnostics before PPO training. Squat has the largest root-height range, while walk has the highest root speed.}
+    \label{fig:diagnostics}
+\end{figure}
+
+\subsection{Final Tracking Outcomes}
+
+Table~\ref{tab:summary} summarizes the final outcomes. Gesture-like motions are robust to strict termination: wave and tap head reach near-full episode length under both loose and strict settings. Walk also remains learnable under strict termination. The clearest failure occurs for squat under strict termination. The loose squat policy reaches the full 250-step horizon, while the strict squat policy averages only 13.52 steps and accumulates a large termination count.
+
+\begin{table}[t]
+\centering
+\caption{Final PPO tracking outcomes. Termination total is the sum of anchor-position and end-effector/body-position terminations reported at the end of training.}
+\label{tab:summary}
+\resizebox{\linewidth}{!}{
+\begin{tabular}{llrrrrr}
+\toprule
+Motion & Condition & Reward & Episode length & Body pos. err. & Joint pos. err. & Term. total \\
+\midrule
+Walk & Loose & 11.352 & 250.00 & 0.123 & 0.916 & 0.000 \\
+Walk & Strict & 13.123 & 244.78 & 0.075 & 0.832 & 0.333 \\
+Walk & Curriculum & 11.186 & 232.64 & 0.089 & 0.905 & 0.500 \\
+Wave & Loose & 18.132 & 250.00 & 0.035 & 0.622 & 0.000 \\
+Wave & Strict & 18.068 & 250.00 & 0.036 & 0.606 & 0.000 \\
+Tap head & Loose & 18.450 & 250.00 & 0.045 & 0.575 & 0.000 \\
+Tap head & Strict & 17.409 & 246.68 & 0.041 & 0.650 & 0.083 \\
+Squat & Loose & 13.657 & 250.00 & 0.271 & 1.545 & 0.000 \\
+Squat & Strict & 0.837 & 13.52 & 0.234 & 0.484 & 144.875 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+Figure~\ref{fig:outcomes} visualizes the same result. The strict squat run is the outlier: low reward, very short episodes, and many terminations. The strict squat body/joint error is lower than loose in Table~\ref{tab:summary}, but this is not evidence of better tracking because the policy terminates almost immediately and only evaluates a small early segment of the reference.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_outcome_summary.png}
+    \caption{Final outcomes by motion and termination setting. Strict termination fails on squat, while gesture motions remain stable.}
+    \label{fig:outcomes}
+\end{figure}
+
+\subsection{Squat: Strict Termination Blocks Full-Horizon Learning}
+
+Figure~\ref{fig:squat_curves} shows the learning curves for squat. Loose termination quickly reaches the full horizon and steadily improves reward. Strict termination remains near zero reward and near-zero episode length. This supports the hypothesis that strict termination can prevent exploration and learning for difficult generated motions.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_squat_termination_curves.png}
+    \caption{Squat learning curves. Loose termination enables full-horizon training, while strict termination repeatedly ends the episode early.}
+    \label{fig:squat_curves}
+\end{figure}
+
+\subsection{Walk Curriculum}
+
+Figure~\ref{fig:walk_curves} compares loose, strict, and curriculum training for walk. The curriculum run successfully resumes from a loose stage into a strict stage, but it does not outperform strict training from scratch on final reward or episode length. This is an important negative result: relaxing terminations helps clearly on squat, but the simple curriculum we tested is not automatically better on easier locomotion.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_walk_curriculum_curves.png}
+    \caption{Walk learning curves. The two-stage curriculum runs successfully, but strict training from scratch performs best in this setting.}
+    \label{fig:walk_curves}
+\end{figure}
+
+\subsection{Qualitative Rollouts}
+
+Figures~\ref{fig:squat_sequence} and~\ref{fig:gesture_sequence} show frame sequences from the saved rollout videos. The qualitative videos match the metrics: strict gesture policies are stable, while strict squat repeatedly terminates early instead of learning the full motion.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_squat_sequence_panel.png}
+    \caption{Squat rollout frames at the final checkpoint. Loose training tracks more of the squat reference; strict training terminates early and never learns a full-horizon behavior.}
+    \label{fig:squat_sequence}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_gesture_sequence_panel.png}
+    \caption{Gesture rollout frames under strict termination. Wave and tap head remain stable because they do not require large root-height changes.}
+    \label{fig:gesture_sequence}
+\end{figure}
+
+\section{Discussion}
+
+The main lesson is that the generated-motion to physical-control interface is sensitive to termination design. Strict terminations are not inherently bad: for static or gesture-heavy references, they preserve stable learning and final tracking quality. However, for motions with larger root-height changes, strict thresholds can end episodes before PPO experiences enough of the reference to improve.
+
+This also shows why tracking error must be interpreted together with episode length. The strict squat policy has low reported body-position and joint-position error because it only evaluates a short early segment. The more meaningful success indicators are reward, episode length, termination count, and qualitative rollouts.
+
+The curriculum result is mixed. We implemented a working loose-to-strict curriculum and confirmed that it can resume training across stages, but the tested walk curriculum did not improve over strict training. A better curriculum target would be squat, where loose termination clearly helps and strict termination clearly fails.
+
+\section{Limitations}
+
+This study is intentionally small. We use one seed per prompt in the final experiment set, and the prompt suite contains four motions. The conclusions should be viewed as empirical evidence for a failure mode rather than a broad benchmark. We also use simple diagnostics rather than learned feasibility predictors, and we do not yet estimate foot-contact consistency directly. Finally, all results are in simulation; we do not deploy policies on hardware.
+
+\section{Conclusion}
+
+We built and ran an end-to-end text-to-physics pipeline for Unitree G1 humanoid motion tracking using Kimodo, KimoLab, MuJoCo Warp, and PPO. In our prompt suite, easy gesture references are learnable under strict termination, while a squat reference with large root-height variation fails under strict termination but succeeds under loose termination. A simple walk curriculum was implemented and tested, but did not outperform strict training. Overall, the results support the project framing: the key research problem is the failure boundary between text-generated kinematic motion and physically executable humanoid control.
+
+\section*{AI Tools Disclosure}
+
+We used AI coding assistance to scaffold and revise Modal orchestration scripts, download utilities, diagnostics scripts, plotting scripts, visual asset generation, and report drafting. All reported experiments were run by the team on Modal GPU jobs, and all quantitative results in this report come from saved KimoLab/MuJoCo Warp training logs and generated reference-motion artifacts.
+
+\begin{thebibliography}{9}
+
+\bibitem{kimodo}
+D. Rempe et al.
+\newblock Kimodo: Scaling Controllable Human Motion Generation.
+\newblock NVIDIA Research, 2026.
+\newblock \url{https://research.nvidia.com/labs/sil/projects/kimodo}
+
+\bibitem{kimodo_github}
+NVIDIA.
+\newblock Kimodo official implementation.
+\newblock \url{https://github.com/nv-tlabs/kimodo}
+
+\bibitem{kimolab}
+Sentdex.
+\newblock KimoLab repository.
+\newblock \url{https://github.com/Sentdex/kimolab}
+
+\bibitem{mujoco}
+E. Todorov, T. Erez, and Y. Tassa.
+\newblock MuJoCo: A physics engine for model-based control.
+\newblock In \emph{IEEE/RSJ International Conference on Intelligent Robots and Systems}, 2012.
+
+\bibitem{mujocowarp}
+Google DeepMind.
+\newblock MuJoCo Warp.
+\newblock \url{https://github.com/google-deepmind/mujoco_warp}
+
+\bibitem{ppo}
+J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov.
+\newblock Proximal Policy Optimization Algorithms.
+\newblock arXiv:1707.06347, 2017.
+
+\bibitem{deepmimic}
+X. B. Peng, P. Abbeel, S. Levine, and M. van de Panne.
+\newblock DeepMimic: Example-guided deep reinforcement learning of physics-based character skills.
+\newblock \emph{ACM Transactions on Graphics}, 2018.
+
+\bibitem{amp}
+X. B. Peng, Z. Ma, P. Abbeel, S. Levine, and A. Kanazawa.
+\newblock AMP: Adversarial Motion Priors for stylized physics-based character control.
+\newblock \emph{ACM Transactions on Graphics}, 2021.
+
+\end{thebibliography}
+
+\end{document}
