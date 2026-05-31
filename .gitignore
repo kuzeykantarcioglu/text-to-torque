@@ -249,6 +249,7 @@ checkpoints/
 *.gif
 
 # Heavy experiment artifacts
+results/training_metrics.csv
 results/videos/
 results/checkpoints/
 experiments/**/logs/

@@ -222,6 +222,8 @@ def _run_with_periodic_sync(
     timeout=60 * 60 * 8,
 )
 def kimolab_bringup(
+    run_id: str | None,
+    run_label: str,
     prompt: str,
     duration: float,
     seed: int,
@@ -233,6 +235,8 @@ def kimolab_bringup(
     max_iterations: int,
     save_interval: int,
     disable_terminations: bool,
+    curriculum: bool,
+    curriculum_stage_iterations: int,
     record_train_video: bool,
     train_video_length: int,
     train_video_interval: int,
@@ -262,7 +266,8 @@ def kimolab_bringup(
 
     subprocess.run(["nvidia-smi"], check=True)
 
-    run_id = f"{int(time.time())}_{_slugify(prompt)}_seed{seed}"
+    if run_id is None:
+        run_id = f"{int(time.time())}_{_slugify(prompt)}_seed{seed}"
     work_dir = Path("/root/kimolab_runs") / run_id
     output_dir = Path("/outputs/kimolab") / run_id
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -279,6 +284,7 @@ def kimolab_bringup(
 
     metadata: dict[str, object] = {
         "run_id": run_id,
+        "run_label": run_label,
         "prompt": prompt,
         "duration": duration,
         "seed": seed,
@@ -290,6 +296,8 @@ def kimolab_bringup(
         "max_iterations": max_iterations,
         "save_interval": save_interval,
         "disable_terminations": disable_terminations,
+        "curriculum": curriculum,
+        "curriculum_stage_iterations": curriculum_stage_iterations,
         "record_train_video": record_train_video,
         "train_video_length": train_video_length,
         "train_video_interval": train_video_interval,
@@ -360,47 +368,6 @@ def kimolab_bringup(
 
     if train:
         episode_length_s = duration + 1.0
-        train_cmd = [
-            "/root/kimolab/.venv/bin/train",
-            "Mjlab-Tracking-Flat-Unitree-G1",
-            "--env.commands.motion.motion-file",
-            str(npz_path),
-            "--env.scene.num-envs",
-            str(num_envs),
-            "--env.episode-length-s",
-            str(episode_length_s),
-            "--agent.logger",
-            "wandb",
-            "--agent.run-name",
-            run_id,
-            "--agent.max-iterations",
-            str(max_iterations),
-            "--agent.save-interval",
-            str(save_interval),
-        ]
-        if disable_terminations:
-            train_cmd.extend(
-                [
-                    "--env.terminations.anchor-pos.params.threshold",
-                    "100.0",
-                    "--env.terminations.anchor-ori.params.threshold",
-                    "100.0",
-                    "--env.terminations.ee-body-pos.params.threshold",
-                    "100.0",
-                ]
-            )
-        if record_train_video:
-            train_cmd.extend(
-                [
-                    "--video",
-                    "True",
-                    "--video-length",
-                    str(train_video_length),
-                    "--video-interval",
-                    str(train_video_interval),
-                ]
-            )
-
         logs_dir = work_dir / "logs"
 
         def sync_training_artifacts(
@@ -421,13 +388,109 @@ def kimolab_bringup(
             volume.commit()
             return copied
 
-        try:
+        def make_train_cmd(
+            stage_run_name: str,
+            stage_iterations: int,
+            stage_disable_terminations: bool,
+            resume_from_run: str | None = None,
+        ) -> list[str]:
+            command = [
+                "/root/kimolab/.venv/bin/train",
+                "Mjlab-Tracking-Flat-Unitree-G1",
+                "--env.commands.motion.motion-file",
+                str(npz_path),
+                "--env.scene.num-envs",
+                str(num_envs),
+                "--env.episode-length-s",
+                str(episode_length_s),
+                "--agent.logger",
+                "wandb",
+                "--agent.run-name",
+                stage_run_name,
+                "--agent.max-iterations",
+                str(stage_iterations),
+                "--agent.save-interval",
+                str(min(save_interval, stage_iterations)),
+            ]
+            if resume_from_run is not None:
+                command.extend(
+                    [
+                        "--agent.resume",
+                        "True",
+                        "--agent.load-run",
+                        resume_from_run,
+                        "--agent.load-checkpoint",
+                        "model_.*.pt",
+                    ]
+                )
+            if stage_disable_terminations:
+                command.extend(
+                    [
+                        "--env.terminations.anchor-pos.params.threshold",
+                        "100.0",
+                        "--env.terminations.anchor-ori.params.threshold",
+                        "100.0",
+                        "--env.terminations.ee-body-pos.params.threshold",
+                        "100.0",
+                    ]
+                )
+            if record_train_video:
+                command.extend(
+                    [
+                        "--video",
+                        "True",
+                        "--video-length",
+                        str(train_video_length),
+                        "--video-interval",
+                        str(train_video_interval),
+                    ]
+                )
+            return command
+
+        def run_train_stage(command: list[str]) -> None:
             _run_with_periodic_sync(
-                train_cmd,
+                command,
                 cwd=str(work_dir),
                 sync_callback=sync_training_artifacts,
                 sync_interval_s=artifact_sync_interval_s,
             )
+
+        try:
+            if curriculum:
+                stage_one_iterations = min(curriculum_stage_iterations, max_iterations)
+                stage_two_iterations = max_iterations - stage_one_iterations
+                stage_one_name = f"{run_id}_stage1_loose"
+                stage_two_name = f"{run_id}_stage2_strict"
+                metadata["stage"] = "curriculum_stage1_loose"
+                metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+                run_train_stage(
+                    make_train_cmd(
+                        stage_one_name,
+                        stage_one_iterations,
+                        stage_disable_terminations=True,
+                    )
+                )
+                sync_training_artifacts("curriculum_stage1_complete", 0.0)
+
+                if stage_two_iterations > 0:
+                    metadata["stage"] = "curriculum_stage2_strict"
+                    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+                    run_train_stage(
+                        make_train_cmd(
+                            stage_two_name,
+                            stage_two_iterations,
+                            stage_disable_terminations=False,
+                            resume_from_run=f".*{stage_one_name}",
+                        )
+                    )
+            else:
+                run_train_stage(
+                    make_train_cmd(
+                        run_id,
+                        max_iterations,
+                        stage_disable_terminations=disable_terminations,
+                    )
+                )
         except BaseException:
             sync_training_artifacts("training_interrupted", min_age_seconds=0.0)
             raise
@@ -455,6 +518,7 @@ def kimolab_bringup(
 @app.local_entrypoint()
 def main(
     prompt: str = "A person walks forward",
+    run_label: str = "",
     duration: float = 4.0,
     seed: int = 0,
     diffusion_steps: int = 50,
@@ -465,12 +529,23 @@ def main(
     max_iterations: int = 20,
     save_interval: int = 10,
     disable_terminations: bool = True,
+    curriculum: bool = False,
+    curriculum_stage_iterations: int = 1000,
     record_train_video: bool = False,
     train_video_length: int = 200,
     train_video_interval: int = 10,
     artifact_sync_interval_s: int = 120,
+    spawn: bool = False,
 ) -> None:
-    result = kimolab_bringup.remote(
+    import time
+
+    run_id_parts = [str(int(time.time())), _slugify(prompt), f"seed{seed}"]
+    if run_label:
+        run_id_parts.append(_slugify(run_label, max_length=24))
+    run_id = "_".join(run_id_parts)
+    kwargs = dict(
+        run_id=run_id,
+        run_label=run_label,
         prompt=prompt,
         duration=duration,
         seed=seed,
@@ -482,9 +557,23 @@ def main(
         max_iterations=max_iterations,
         save_interval=save_interval,
         disable_terminations=disable_terminations,
+        curriculum=curriculum,
+        curriculum_stage_iterations=curriculum_stage_iterations,
         record_train_video=record_train_video,
         train_video_length=train_video_length,
         train_video_interval=train_video_interval,
         artifact_sync_interval_s=artifact_sync_interval_s,
     )
-    print(result)
+    if spawn:
+        function_call = kimolab_bringup.spawn(**kwargs)
+        print(
+            {
+                "run_id": run_id,
+                "modal_volume": VOLUME_NAME,
+                "output_dir": f"/outputs/kimolab/{run_id}",
+                "function_call": str(function_call),
+            }
+        )
+    else:
+        result = kimolab_bringup.remote(**kwargs)
+        print(result)

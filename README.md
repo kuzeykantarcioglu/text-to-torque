@@ -48,7 +48,7 @@ Install local dependencies:
 
 ```bash
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install modal wandb numpy pandas matplotlib scipy pyyaml tqdm rich ipython jupyter black ruff pytest
+python -m pip install modal wandb numpy pandas matplotlib scipy pyyaml tqdm rich ipython jupyter tensorboard black ruff pytest
 ```
 
 Verify the local environment:
@@ -56,7 +56,7 @@ Verify the local environment:
 ```bash
 python --version
 python -m pip --version
-python -c "import modal, wandb, numpy, pandas, matplotlib, yaml, tqdm; print('local env good')"
+python -c "import modal, wandb, numpy, pandas, matplotlib, yaml, tqdm, tensorboard; print('local env good')"
 ```
 
 Set up Modal:
@@ -167,6 +167,10 @@ For longer jobs, use detached mode:
 modal run --detach modal_kimolab.py --train
 ```
 
+`modal_kimolab.py` defaults to a normal remote call so `modal run --detach`
+can keep the training function alive after the local entrypoint exits. The
+`--spawn` mode is useful only for short tests; do not use it for long training.
+
 During training, `modal_kimolab.py` periodically syncs `logs/` to the Modal
 Volume so checkpoints and train videos survive a local terminal disconnect or a
 later cancellation. Control this cadence with `--artifact-sync-interval-s`
@@ -251,4 +255,100 @@ modal volume get text-to-torque-results kimolab/<run_id> ./motions/from_modal/ki
 
 # Fresh terminal setup
 conda activate text-to-torque && set -a && source .env && set +a
+```
+
+## Final Project Workflow
+
+Generate the reference prompt suite in parallel on Modal:
+
+```bash
+conda activate text-to-torque
+scripts/launch_reference_suite.sh
+```
+
+Launch a small loose-termination PPO suite:
+
+```bash
+conda activate text-to-torque
+MAX_ITERATIONS=2000 \
+NUM_ENVS=1024 \
+PROMPT_IDS=walk_forward,wave_right,tap_head,squat_stand \
+TERMINATION_MODE=loose \
+scripts/launch_training_suite.sh
+```
+
+Run a strict-vs-loose comparison on one or two prompts:
+
+```bash
+TERMINATION_MODE=strict PROMPT_IDS=walk_forward,tap_head scripts/launch_training_suite.sh
+TERMINATION_MODE=loose PROMPT_IDS=walk_forward,tap_head scripts/launch_training_suite.sh
+```
+
+Download a completed Modal run:
+
+```bash
+scripts/download_modal_run.sh <run_id>
+```
+
+Compute reference-motion diagnostics from downloaded runs:
+
+```bash
+python scripts/compute_diagnostics.py
+python scripts/plot_diagnostics.py
+```
+
+This writes:
+
+```text
+results/motion_diagnostics.csv
+results/motion_diagnostics.md
+figures/motion_diagnostics.png
+```
+
+Export training curves from downloaded TensorBoard logs:
+
+```bash
+python scripts/export_training_metrics.py --run-prefix <run_id_prefix>
+```
+
+For the current final experiment set:
+
+```bash
+python scripts/export_training_metrics.py \
+  --run-prefix 1780189976 \
+  --run-prefix 1780200983 \
+  --run-prefix 1780201117 \
+  --run-prefix 1780201118 \
+  --run-prefix 1780201423
+```
+
+This writes:
+
+```text
+results/training_metrics.csv
+results/training_summary.csv
+results/training_summary.md
+figures/training_curves.png
+```
+
+`results/training_metrics.csv` is the raw TensorBoard scalar dump and is ignored
+by git because it can be large. The summary CSV/Markdown files are small enough
+to commit.
+
+Create final-report figures and a compact final summary table:
+
+```bash
+python scripts/make_final_figures.py
+```
+
+This writes:
+
+```text
+results/final_experiment_summary.csv
+results/final_experiment_summary.md
+figures/final_outcome_summary.png
+figures/final_reference_diagnostics.png
+figures/final_squat_termination_curves.png
+figures/final_video_contact_sheet.png
+figures/final_walk_curriculum_curves.png
 ```
