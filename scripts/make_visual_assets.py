@@ -41,6 +41,25 @@ VIDEO_SPECS = {
     },
 }
 
+HARD_REFERENCE_VIDEO_SPECS = {
+    "jump": {
+        "label": "Jump reference",
+        "path": Path("motions/from_modal/1780272604_a-person-jumps_seed0_hard-reference/reference_motion.mp4"),
+    },
+    "roll": {
+        "label": "Roll reference",
+        "path": Path("motions/from_modal/1780272604_a-person-rolls-forward-on-the-ground_seed0_hard-reference/reference_motion.mp4"),
+    },
+    "backflip": {
+        "label": "Backflip reference",
+        "path": Path("motions/from_modal/1780273575_a-person-does-a-backflip_seed0_hard-reference-extra/reference_motion.mp4"),
+    },
+    "cartwheel": {
+        "label": "Cartwheel reference",
+        "path": Path("motions/from_modal/1780273575_a-person-does-a-cartwheel_seed0_hard-reference-extra/reference_motion.mp4"),
+    },
+}
+
 PANELS = [
     {
         "filename": "final_walk_sequence_panel.png",
@@ -61,6 +80,13 @@ PANELS = [
         "times": [0.2, 0.8, 1.4, 2.0],
     },
 ]
+
+HARD_REFERENCE_PANEL = {
+    "filename": "final_hard_reference_panel.png",
+    "title": "Hard text-generated references before PPO",
+    "rows": ["jump", "roll", "backflip", "cartwheel"],
+    "times": [0.2, 0.8, 1.4, 2.0],
+}
 
 
 def _require_tools() -> None:
@@ -121,8 +147,13 @@ def _draw_centered(draw, box: tuple[int, int, int, int], text: str, font, fill: 
     )
 
 
-def create_panel(panel: dict[str, object], output_dir: Path) -> None:
+def create_panel(
+    panel: dict[str, object],
+    output_dir: Path,
+    video_specs: dict[str, dict[str, object]] | None = None,
+) -> None:
     Image, ImageDraw, _ = _load_pillow()
+    video_specs = video_specs or VIDEO_SPECS
 
     cell_w, cell_h = 320, 190
     row_label_w = 150
@@ -150,7 +181,7 @@ def create_panel(panel: dict[str, object], output_dir: Path) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
         for row, key in enumerate(row_keys):
-            spec = VIDEO_SPECS[key]
+            spec = video_specs[key]
             video_path = Path(spec["path"])
             if not video_path.exists():
                 raise SystemExit(f"Missing video: {video_path}")
@@ -174,6 +205,10 @@ def create_panel(panel: dict[str, object], output_dir: Path) -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     canvas.save(output_dir / str(panel["filename"]))
+
+
+def create_hard_reference_panel(output_dir: Path) -> None:
+    create_panel(HARD_REFERENCE_PANEL, output_dir, HARD_REFERENCE_VIDEO_SPECS)
 
 
 def copy_selected_videos(output_dir: Path) -> None:
@@ -200,6 +235,9 @@ def main() -> None:
     for panel in PANELS:
         create_panel(panel, args.figures_dir)
         print(f"Wrote {args.figures_dir / str(panel['filename'])}")
+
+    create_hard_reference_panel(args.figures_dir)
+    print(f"Wrote {args.figures_dir / str(HARD_REFERENCE_PANEL['filename'])}")
 
     if not args.no_copy_videos:
         copy_selected_videos(args.media_dir)

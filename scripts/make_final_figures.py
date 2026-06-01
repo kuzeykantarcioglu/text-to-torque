@@ -84,6 +84,8 @@ CONDITION_COLORS = {
     "Curriculum": "#54a24b",
     "Curriculum loose": "#72b7b2",
     "Curriculum strict": "#54a24b",
+    "Loose seed 1": "#4c78a8",
+    "Strict seed 1": "#f58518",
 }
 
 VIDEO_SHEET_SPECS = [
@@ -203,6 +205,87 @@ def _write_final_table(final: pd.DataFrame, csv_path: Path, md_path: Path) -> No
     for _, row in display.iterrows():
         lines.append("| " + " | ".join(str(row[column]) for column in display.columns) + " |")
     md_path.write_text("\n".join(lines) + "\n")
+
+
+def _write_extra_squat_table(summary: pd.DataFrame, csv_path: Path, md_path: Path) -> pd.DataFrame:
+    specs = [
+        {
+            "run_id": "1780273575_a-person-squats-down-and-stands-up_seed0_squat-curriculum-extra",
+            "condition": "curriculum_stage1_loose",
+            "display_condition": "Seed 0 curriculum, loose stage",
+        },
+        {
+            "run_id": "1780273575_a-person-squats-down-and-stands-up_seed0_squat-curriculum-extra",
+            "condition": "curriculum_stage2_strict",
+            "display_condition": "Seed 0 curriculum, strict stage",
+        },
+        {
+            "run_id": "1780273575_a-person-squats-down-and-stands-up_seed1_squat-loose-seed1-extra",
+            "condition": "squat-loose-seed1-extra",
+            "display_condition": "Seed 1 loose",
+        },
+        {
+            "run_id": "1780273575_a-person-squats-down-and-stands-up_seed1_squat-strict-seed1-extra",
+            "condition": "squat-strict-seed1-extra",
+            "display_condition": "Seed 1 strict",
+        },
+    ]
+
+    rows = []
+    for spec in specs:
+        match = summary[
+            (summary["run_id"] == spec["run_id"])
+            & (summary["condition"] == spec["condition"])
+        ].copy()
+        if match.empty:
+            print(f"[WARN] Missing extra squat row: {spec}")
+            continue
+        row = match.iloc[0].copy()
+        row["display_condition"] = spec["display_condition"]
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    extra = pd.DataFrame(rows)
+    extra["termination_total"] = (
+        extra.get("Episode_Termination/anchor_pos", 0).fillna(0)
+        + extra.get("Episode_Termination/ee_body_pos", 0).fillna(0)
+    )
+
+    columns = [
+        "display_condition",
+        "Train/mean_reward",
+        "Train/mean_episode_length",
+        "Metrics/motion/error_body_pos",
+        "Metrics/motion/error_joint_pos",
+        "termination_total",
+        "Perf/total_fps",
+    ]
+    table = extra[columns].rename(
+        columns={
+            "display_condition": "condition",
+            "Train/mean_reward": "final_reward",
+            "Train/mean_episode_length": "final_episode_length",
+            "Metrics/motion/error_body_pos": "body_pos_error",
+            "Metrics/motion/error_joint_pos": "joint_pos_error",
+            "Perf/total_fps": "steps_per_second",
+        }
+    )
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(csv_path, index=False, float_format="%.6g")
+
+    display = table.copy()
+    numeric_columns = display.select_dtypes(include="number").columns
+    display[numeric_columns] = display[numeric_columns].round(3)
+    lines = [
+        "| " + " | ".join(display.columns) + " |",
+        "| " + " | ".join("---" for _ in display.columns) + " |",
+    ]
+    for _, row in display.iterrows():
+        lines.append("| " + " | ".join(str(row[column]) for column in display.columns) + " |")
+    md_path.write_text("\n".join(lines) + "\n")
+    return extra
 
 
 def _plot_outcome_bars(final: pd.DataFrame, output_path: Path) -> None:
@@ -488,10 +571,42 @@ def main() -> None:
                 "run_id": "1780201423_a-person-walks-forward_seed0_curriculum",
                 "condition": "curriculum_stage2_strict",
                 "label": "Curriculum strict",
-                "step_offset": 1000,
             },
         ],
     )
+    extra_squat = _write_extra_squat_table(
+        summary,
+        args.results_dir / "extra_squat_summary.csv",
+        args.results_dir / "extra_squat_summary.md",
+    )
+    if not extra_squat.empty:
+        _plot_comparison_curves(
+            metrics,
+            args.figures_dir / "final_squat_extra_curves.png",
+            "Extra squat runs: seed sensitivity and curriculum collapse",
+            [
+                {
+                    "run_id": "1780273575_a-person-squats-down-and-stands-up_seed0_squat-curriculum-extra",
+                    "condition": "curriculum_stage1_loose",
+                    "label": "Curriculum loose",
+                },
+                {
+                    "run_id": "1780273575_a-person-squats-down-and-stands-up_seed0_squat-curriculum-extra",
+                    "condition": "curriculum_stage2_strict",
+                    "label": "Curriculum strict",
+                },
+                {
+                    "run_id": "1780273575_a-person-squats-down-and-stands-up_seed1_squat-loose-seed1-extra",
+                    "condition": "squat-loose-seed1-extra",
+                    "label": "Loose seed 1",
+                },
+                {
+                    "run_id": "1780273575_a-person-squats-down-and-stands-up_seed1_squat-strict-seed1-extra",
+                    "condition": "squat-strict-seed1-extra",
+                    "label": "Strict seed 1",
+                },
+            ],
+        )
     _plot_video_contact_sheet(args.figures_dir / "final_video_contact_sheet.png")
 
     print(f"Wrote {args.results_dir / 'final_experiment_summary.csv'}")

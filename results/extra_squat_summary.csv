@@ -1,0 +1,5 @@
+condition,final_reward,final_episode_length,body_pos_error,joint_pos_error,termination_total,steps_per_second
+"Seed 0 curriculum, loose stage",11.619,250,0.248832,1.84821,0,24481
+"Seed 0 curriculum, strict stage",0.772385,12.61,0.229598,0.435817,144.333,30614
+Seed 1 loose,12.6977,250,0.0957082,1.14606,0,24385
+Seed 1 strict,13.9629,246.82,0.054069,0.889961,0.166667,24554

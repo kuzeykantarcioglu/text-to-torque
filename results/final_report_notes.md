@@ -21,6 +21,13 @@ Termination settings:
 - Curriculum: walk only; 1000 iterations loose, then resume for 1000 iterations
   under strict thresholds.
 
+Extra runs added on 5/31:
+
+- Squat seed 0 curriculum: 1000 loose iterations followed by 1000 strict
+  iterations.
+- Squat seed 1 loose and strict replications.
+- Reference-only hard prompts: jump, roll forward, backflip, and cartwheel.
+
 ## Main Results
 
 Strict termination is not universally harmful. Gesture-like motions learn well
@@ -50,6 +57,19 @@ training from scratch on final reward or episode length. This is still a useful
 negative result: the benefit of relaxing terminations appears motion-dependent,
 with the clearest benefit on the squat motion rather than on walk.
 
+The extra squat runs make the conclusion more nuanced:
+
+- Squat seed 1 loose: final reward 12.70, episode length 250.0.
+- Squat seed 1 strict: final reward 13.96, episode length 246.82.
+- Squat seed 0 curriculum loose stage: final reward 11.62, episode length 250.0.
+- Squat seed 0 curriculum strict stage: final reward 0.77, episode length 12.61,
+  termination total 144.33.
+
+This means strict termination is seed/path dependent rather than universally
+bad. For squat seed 0, strict and abrupt loose-to-strict curriculum fail. For
+squat seed 1, strict eventually recovers by 2000 iterations, although it is much
+slower early in training. Loose termination is robust across both squat seeds.
+
 ## Reference Diagnostics
 
 Pre-training diagnostics separate the motions in intuitive ways:
@@ -73,7 +93,10 @@ high joint acceleration.
   curves.
 - `figures/final_walk_curriculum_curves.png`: loose, strict, and curriculum walk
   learning curves.
+- `figures/final_squat_extra_curves.png`: extra squat seed/curriculum curves.
 - `figures/final_video_contact_sheet.png`: thumbnails from final rollout videos.
+- `figures/final_hard_reference_panel.png`: jump/roll/backflip/cartwheel
+  reference-only snapshots.
 
 ## Suggested Final Report Claims
 
@@ -82,13 +105,14 @@ between text-generated kinematic references and dynamically feasible humanoid
 tracking. The strongest claim is:
 
 > In this prompt suite, strict tracking terminations are acceptable for easy
-> gesture motions but can block learning on motions with large root-height
-> changes. Relaxed terminations recover full-horizon learning on the squat
-> motion, while a simple walk curriculum did not outperform strict training.
+> gesture motions and can learn some squat seeds, but they are less robust on
+> motions with large root-height changes. Relaxed terminations recover
+> full-horizon learning reliably on squat, while abrupt loose-to-strict
+> curricula can collapse under strict thresholds.
 
 Avoid claiming that the curriculum broadly improves learning. The current data
-supports "implemented and tested; mixed/negative result on walk" rather than a
-positive curriculum result.
+supports "implemented and tested; negative on walk and failed on squat seed 0
+under abrupt strict transfer" rather than a positive curriculum result.
 
 ## AI Tools Disclosure Draft
 
