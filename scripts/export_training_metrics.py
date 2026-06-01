@@ -42,6 +42,11 @@ def _event_log_name(event_path: Path, run_dir: Path) -> str:
 
 
 def _effective_condition(event_log_name: str, metadata: dict[str, object]) -> tuple[str, bool | None]:
+    if "stage1_loose" in event_log_name:
+        return "curriculum_stage1_loose", True
+    if "stage2_strict" in event_log_name:
+        return "curriculum_stage2_strict", False
+
     schedule_match = re.search(r"_stage(\d+)_(loose|strict|thr[0-9p]+)", event_log_name)
     if schedule_match:
         stage_number, threshold_label = schedule_match.groups()
@@ -51,11 +56,6 @@ def _effective_condition(event_log_name: str, metadata: dict[str, object]) -> tu
         if threshold_label == "strict":
             return condition, False
         return condition, None
-
-    if "stage1_loose" in event_log_name:
-        return "curriculum_stage1_loose", True
-    if "stage2_strict" in event_log_name:
-        return "curriculum_stage2_strict", False
 
     disable_terminations = metadata.get("disable_terminations", None)
     run_label = str(metadata.get("run_label", "") or "")

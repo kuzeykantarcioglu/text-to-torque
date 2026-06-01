@@ -39,6 +39,22 @@ VIDEO_SPECS = {
         "label": "Tap strict",
         "path": Path("motions/from_modal/1780201117_a-person-taps-themselves-on-the-head_seed0_strict/logs/rsl_rl/g1_tracking/2026-05-31_04-23-45_1780201117_a-person-taps-themselves-on-the-head_seed0_strict/videos/train/rl-video-step-40000.mp4"),
     },
+    "squat_gradual_thr2": {
+        "label": "Squat gradual thr=2",
+        "path": Path("motions/from_modal/1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum/logs/rsl_rl/g1_tracking/2026-06-01_07-38-53_1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum_stage05_thr2/videos/train/rl-video-step-10000.mp4"),
+    },
+    "squat_gradual_thr1": {
+        "label": "Squat gradual thr=1",
+        "path": Path("motions/from_modal/1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum/logs/rsl_rl/g1_tracking/2026-06-01_07-49-05_1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum_stage06_thr1/videos/train/rl-video-step-10000.mp4"),
+    },
+    "squat_gradual_strict": {
+        "label": "Squat gradual strict",
+        "path": Path("motions/from_modal/1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum/logs/rsl_rl/g1_tracking/2026-06-01_07-59-18_1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum_stage07_strict/videos/train/rl-video-step-10000.mp4"),
+    },
+    "jump_loose": {
+        "label": "Jump loose",
+        "path": Path("motions/from_modal/1780296901_a-person-jumps_seed0_jump-loose-extra/logs/rsl_rl/g1_tracking/2026-06-01_07-00-29_1780296901_a-person-jumps_seed0_jump-loose-extra/videos/train/rl-video-step-40000.mp4"),
+    },
 }
 
 HARD_REFERENCE_VIDEO_SPECS = {
@@ -77,6 +93,18 @@ PANELS = [
         "filename": "final_gesture_sequence_panel.png",
         "title": "Gesture rollouts under strict termination",
         "rows": ["wave_strict", "tap_strict"],
+        "times": [0.2, 0.8, 1.4, 2.0],
+    },
+    {
+        "filename": "final_gradual_curriculum_sequence_panel.png",
+        "title": "Gradual squat curriculum: strict transfer collapses",
+        "rows": ["squat_gradual_thr2", "squat_gradual_thr1", "squat_gradual_strict"],
+        "times": [0.2, 0.8, 1.4, 2.0],
+    },
+    {
+        "filename": "final_jump_sequence_panel.png",
+        "title": "Jump rollout under loose termination",
+        "rows": ["jump_loose"],
         "times": [0.2, 0.8, 1.4, 2.0],
     },
 ]

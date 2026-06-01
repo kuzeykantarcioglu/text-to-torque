@@ -19,6 +19,7 @@ PROMPT_LABELS = {
     "A person waves with their right hand": "Wave",
     "A person taps themselves on the head": "Tap head",
     "A person squats down and stands up": "Squat",
+    "A person jumps": "Jump",
 }
 
 FINAL_OUTCOME_RUNS = [
@@ -86,7 +87,20 @@ CONDITION_COLORS = {
     "Curriculum strict": "#54a24b",
     "Loose seed 1": "#4c78a8",
     "Strict seed 1": "#f58518",
+    "Jump loose": "#b279a2",
 }
+
+GRADUAL_CURRICULUM_RUN = "1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum"
+JUMP_LOOSE_RUN = "1780296901_a-person-jumps_seed0_jump-loose-extra"
+GRADUAL_STAGE_SPECS = [
+    ("curriculum_stage01_loose", "thr=100", "#4c78a8"),
+    ("curriculum_stage02_thr20", "thr=20", "#72b7b2"),
+    ("curriculum_stage03_thr10", "thr=10", "#54a24b"),
+    ("curriculum_stage04_thr5", "thr=5", "#eeca3b"),
+    ("curriculum_stage05_thr2", "thr=2", "#f58518"),
+    ("curriculum_stage06_thr1", "thr=1", "#e45756"),
+    ("curriculum_stage07_strict", "strict", "#b279a2"),
+]
 
 VIDEO_SHEET_SPECS = [
     (
@@ -286,6 +300,109 @@ def _write_extra_squat_table(summary: pd.DataFrame, csv_path: Path, md_path: Pat
         lines.append("| " + " | ".join(str(row[column]) for column in display.columns) + " |")
     md_path.write_text("\n".join(lines) + "\n")
     return extra
+
+
+def _write_markdown_table(table: pd.DataFrame, output_path: Path) -> None:
+    display = table.copy()
+    numeric_columns = display.select_dtypes(include="number").columns
+    display[numeric_columns] = display[numeric_columns].round(3)
+    lines = [
+        "| " + " | ".join(display.columns) + " |",
+        "| " + " | ".join("---" for _ in display.columns) + " |",
+    ]
+    for _, row in display.iterrows():
+        lines.append("| " + " | ".join(str(row[column]) for column in display.columns) + " |")
+    output_path.write_text("\n".join(lines) + "\n")
+
+
+def _write_gradual_curriculum_table(
+    summary: pd.DataFrame,
+    csv_path: Path,
+    md_path: Path,
+) -> pd.DataFrame:
+    rows = []
+    for condition, label, _ in GRADUAL_STAGE_SPECS:
+        match = summary[
+            (summary["run_id"] == GRADUAL_CURRICULUM_RUN)
+            & (summary["condition"] == condition)
+        ].copy()
+        if match.empty:
+            print(f"[WARN] Missing gradual curriculum row: {condition}")
+            continue
+        row = match.iloc[0].copy()
+        row["stage"] = label
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    gradual = pd.DataFrame(rows)
+    gradual["termination_total"] = (
+        gradual.get("Episode_Termination/anchor_pos", 0).fillna(0)
+        + gradual.get("Episode_Termination/ee_body_pos", 0).fillna(0)
+    )
+    columns = [
+        "stage",
+        "Train/mean_reward",
+        "Train/mean_episode_length",
+        "Metrics/motion/error_body_pos",
+        "Metrics/motion/error_joint_pos",
+        "termination_total",
+        "Perf/total_fps",
+    ]
+    table = gradual[columns].rename(
+        columns={
+            "Train/mean_reward": "final_reward",
+            "Train/mean_episode_length": "final_episode_length",
+            "Metrics/motion/error_body_pos": "body_pos_error",
+            "Metrics/motion/error_joint_pos": "joint_pos_error",
+            "Perf/total_fps": "steps_per_second",
+        }
+    )
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(csv_path, index=False, float_format="%.6g")
+    _write_markdown_table(table, md_path)
+    return gradual
+
+
+def _write_jump_table(summary: pd.DataFrame, csv_path: Path, md_path: Path) -> pd.DataFrame:
+    match = summary[
+        (summary["run_id"] == JUMP_LOOSE_RUN)
+        & (summary["condition"] == "jump-loose-extra")
+    ].copy()
+    if match.empty:
+        print("[WARN] Missing jump training row")
+        return pd.DataFrame()
+
+    jump = match.copy()
+    jump["termination_total"] = (
+        jump.get("Episode_Termination/anchor_pos", 0).fillna(0)
+        + jump.get("Episode_Termination/ee_body_pos", 0).fillna(0)
+    )
+    table = jump[
+        [
+            "Train/mean_reward",
+            "Train/mean_episode_length",
+            "Metrics/motion/error_body_pos",
+            "Metrics/motion/error_joint_pos",
+            "termination_total",
+            "Perf/total_fps",
+        ]
+    ].rename(
+        columns={
+            "Train/mean_reward": "final_reward",
+            "Train/mean_episode_length": "final_episode_length",
+            "Metrics/motion/error_body_pos": "body_pos_error",
+            "Metrics/motion/error_joint_pos": "joint_pos_error",
+            "Perf/total_fps": "steps_per_second",
+        }
+    )
+    table.insert(0, "motion", "Jump")
+    table.insert(1, "condition", "Loose")
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(csv_path, index=False, float_format="%.6g")
+    _write_markdown_table(table, md_path)
+    return jump
 
 
 def _plot_outcome_bars(final: pd.DataFrame, output_path: Path) -> None:
@@ -605,6 +722,45 @@ def main() -> None:
                     "condition": "squat-strict-seed1-extra",
                     "label": "Strict seed 1",
                 },
+            ],
+        )
+    gradual = _write_gradual_curriculum_table(
+        summary,
+        args.results_dir / "gradual_curriculum_summary.csv",
+        args.results_dir / "gradual_curriculum_summary.md",
+    )
+    if not gradual.empty:
+        _plot_comparison_curves(
+            metrics,
+            args.figures_dir / "final_gradual_curriculum_curves.png",
+            "Squat seed 0: gradual termination curriculum still collapses at strict transfer",
+            [
+                {
+                    "run_id": GRADUAL_CURRICULUM_RUN,
+                    "condition": condition,
+                    "label": label,
+                    "color": color,
+                }
+                for condition, label, color in GRADUAL_STAGE_SPECS
+            ],
+        )
+
+    jump = _write_jump_table(
+        summary,
+        args.results_dir / "jump_training_summary.csv",
+        args.results_dir / "jump_training_summary.md",
+    )
+    if not jump.empty:
+        _plot_comparison_curves(
+            metrics,
+            args.figures_dir / "final_jump_training_curves.png",
+            "Jump tracking under loose termination",
+            [
+                {
+                    "run_id": JUMP_LOOSE_RUN,
+                    "condition": "jump-loose-extra",
+                    "label": "Jump loose",
+                }
             ],
         )
     _plot_video_contact_sheet(args.figures_dir / "final_video_contact_sheet.png")

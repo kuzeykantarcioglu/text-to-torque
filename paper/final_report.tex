@@ -29,11 +29,11 @@ Benji Warburton \\
 
 Text-to-motion models can generate plausible humanoid kinematics from natural language, but a visually plausible trajectory is not necessarily dynamically feasible for a torque-controlled robot. This project studies the interface between generated kinematic references and reinforcement-learned physical control. We use KimoLab, which connects Kimodo text-conditioned motion generation to MuJoCo/MuJoCo Warp PPO tracking for the Unitree G1 humanoid. Our main question is which generated reference motions are learnable by downstream PPO tracking, and whether relaxed or curriculum termination settings improve learning on difficult references.
 
-We built a Modal-based experiment pipeline that generates text-conditioned Unitree G1 motions, converts them into MuJoCo reference trajectories, trains PPO tracking policies, periodically saves checkpoints and rollout videos, downloads artifacts, computes reference-motion diagnostics, and produces analysis figures. We evaluate four prompts: walking forward, waving with the right hand, tapping the head, and squatting down then standing up. Before PPO training, we compute simple diagnostics such as root-height range, root speed, and joint acceleration. We then compare loose termination thresholds, strict termination thresholds, and a two-stage loose-to-strict termination curriculum for walking.
+We built a Modal-based experiment pipeline that generates text-conditioned Unitree G1 motions, converts them into MuJoCo reference trajectories, trains PPO tracking policies, periodically saves checkpoints and rollout videos, downloads artifacts, computes reference-motion diagnostics, and produces analysis figures. We evaluate four main prompts: walking forward, waving with the right hand, tapping the head, and squatting down then standing up. We also add a harder jump PPO run and reference-only inspections for roll, backflip, and cartwheel prompts. Before PPO training, we compute simple diagnostics such as root-height range, root speed, and joint acceleration. We then compare loose termination thresholds, strict termination thresholds, abrupt loose-to-strict curricula, and a gradual termination-threshold curriculum for squat.
 
 The main empirical result is that termination design exposes a seed- and path-dependent failure boundary. Strict termination works well for gesture-like motions: wave and tap-head policies reach near-full episode lengths and final rewards around 18 under strict thresholds. Walking is also learnable under strict termination, reaching final reward 13.12 and mean episode length 244.78 out of 250. In contrast, strict termination fails severely on one squat reference seed, which has the largest root-height range among our initial references. The loose seed-0 squat policy reaches final reward 13.66 and full 250-step episodes, while the strict seed-0 squat policy reaches only reward 0.84 and terminates after 13.52 steps on average. A second squat seed later shows that strict training can recover with enough samples, but loose termination is more robust early and across seeds.
 
-The curriculum experiments are useful negative results. Our two-stage walk curriculum successfully resumes training from a loose first stage into a strict second stage, but it does not outperform strict training from scratch. On squat seed 0, a loose first stage reaches the full horizon, but abrupt transfer to strict termination collapses back to short episodes. This suggests that relaxed termination is not automatically converted into a good strict policy by a simple two-stage schedule. Overall, the project provides a small but complete empirical study of the gap between text-generated kinematic motion and physically executable humanoid control. The strongest conclusion is that generated-reference diagnostics, termination statistics, and seed replications can reveal when PPO tracking failure is caused not by PPO alone, but by the interaction between generated motion properties, initialization, and the episode termination rule.
+The curriculum experiments are useful negative results, but they are more informative after adding a gradual schedule. Our two-stage walk curriculum successfully resumes training from a loose first stage into a strict second stage, but it does not outperform strict training from scratch. On squat seed 0, abrupt loose-to-strict transfer collapses back to short episodes. A gradual schedule survives thresholds of 20, 10, 5, and 2, mostly survives threshold 1, and then collapses under the default strict thresholds. This localizes the failure boundary rather than simply showing that curriculum code failed. The jump loose-termination run reaches full episodes with final reward 15.63, showing that semantic difficulty alone is not enough to predict failure. Overall, the project provides a small but complete empirical study of the gap between text-generated kinematic motion and physically executable humanoid control.
 
 \clearpage
 
@@ -86,11 +86,12 @@ These diagnostics are intentionally simple. They are meant to test whether cheap
 
 \subsection{Termination Conditions}
 
-We compare three termination settings:
+We compare four termination settings:
 \begin{itemize}
     \item \textbf{Loose}: large tracking-deviation thresholds, so the policy can experience the full reference even when tracking is poor early in training.
     \item \textbf{Strict}: standard tighter tracking-deviation thresholds, so episodes end when the robot deviates too far from the reference.
-    \item \textbf{Curriculum}: a two-stage schedule used for walking: 1000 iterations with loose thresholds, then resume from that checkpoint for 1000 iterations with strict thresholds.
+    \item \textbf{Curriculum}: a two-stage schedule used for walking and squat: 1000 iterations with loose thresholds, then resume from that checkpoint for 1000 iterations with strict thresholds.
+    \item \textbf{Gradual curriculum}: a seven-stage squat schedule with thresholds $100, 20, 10, 5, 2, 1$, then strict defaults, used to test where loose tracking becomes brittle.
 \end{itemize}
 
 The motivation is that strict termination can be useful once a policy is competent, but harmful if it ends episodes before the policy observes enough of the motion to improve.
@@ -113,7 +114,7 @@ Squat & A person squats down and stands up & Large root-height change \\
 
 The main quantitative metrics are final reward, mean episode length, body-position tracking error, joint-position tracking error, and termination counts. We also save training videos and checkpoints throughout training. Episode length is crucial when comparing termination settings, because low tracking error over very short episodes can be misleading.
 
-After the main training runs, we also generated reference-only videos for four harder prompts: jump, roll forward, backflip, and cartwheel. These were used for qualitative feasibility inspection rather than PPO training.
+After the main training runs, we also generated harder prompts: jump, roll forward, backflip, and cartwheel. We trained jump with loose termination and used roll, backflip, and cartwheel as reference-only qualitative feasibility checks.
 
 \section{Results}
 
@@ -213,9 +214,51 @@ Seed 1 strict & 13.963 & 246.82 & 0.054 & 0.890 & 0.167 \\
     \label{fig:extra_squat}
 \end{figure}
 
+\subsection{Gradual Squat Curriculum}
+
+Because the abrupt seed-0 squat curriculum failed, we added a more gradual termination schedule: loose threshold 100, then 20, 10, 5, 2, 1, and finally the default strict thresholds. Table~\ref{tab:gradual_squat} and Figure~\ref{fig:gradual_squat} show that the policy remains full-horizon through threshold 2 and mostly full-horizon at threshold 1. The final strict stage still collapses to 12.33-step episodes. This is a stronger diagnostic result than the abrupt curriculum alone: the seed-0 squat policy is not simply unable to improve after loose training, but it is unable to satisfy the final strict termination rule.
+
+\begin{table}[t]
+\centering
+\caption{Gradual seed-0 squat curriculum. The policy survives intermediate thresholds but collapses under the default strict termination thresholds.}
+\label{tab:gradual_squat}
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrrr}
+\toprule
+Stage & Reward & Episode length & Body pos. err. & Joint pos. err. & Term. total \\
+\midrule
+Threshold 100 & 4.510 & 250.00 & 0.554 & 2.504 & 0.000 \\
+Threshold 20 & 10.724 & 250.00 & 0.293 & 1.752 & 0.000 \\
+Threshold 10 & 12.386 & 250.00 & 0.283 & 1.656 & 0.000 \\
+Threshold 5 & 13.108 & 250.00 & 0.287 & 1.489 & 0.000 \\
+Threshold 2 & 13.040 & 250.00 & 0.293 & 1.708 & 0.000 \\
+Threshold 1 & 11.934 & 244.86 & 0.294 & 1.423 & 0.083 \\
+Strict & 0.707 & 12.33 & 0.227 & 0.484 & 145.667 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_gradual_curriculum_curves.png}
+    \caption{Gradual squat curriculum learning curves. Intermediate thresholds preserve long episodes; the final strict stage collapses.}
+    \label{fig:gradual_squat}
+\end{figure}
+
+\subsection{Jump Training}
+
+We also trained a loose-termination PPO policy for the harder ``a person jumps'' prompt. The run reaches final reward 15.63, full 250-step episodes, body-position error 0.046, joint-position error 0.727, and zero final terminations. This result is useful because it prevents an overly simple story where all semantically harder prompts fail. In this setup, jump is learnable under loose termination, while squat seed 0 remains brittle specifically at the strict termination boundary.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_jump_training_curves.png}
+    \caption{Loose-termination jump training. The policy reaches full-horizon episodes and stable final reward.}
+    \label{fig:jump_curves}
+\end{figure}
+
 \subsection{Qualitative Rollouts}
 
-Figures~\ref{fig:squat_sequence} and~\ref{fig:gesture_sequence} show frame sequences from the saved rollout videos. The qualitative videos match the metrics: strict gesture policies are stable, while strict squat repeatedly terminates early instead of learning the full motion.
+Figures~\ref{fig:squat_sequence}, \ref{fig:gesture_sequence}, \ref{fig:gradual_sequence}, and~\ref{fig:jump_sequence} show frame sequences from the saved rollout videos. The qualitative videos match the metrics: strict gesture policies are stable, strict squat repeatedly terminates early, intermediate gradual-curriculum stages produce much longer episodes than the final strict stage, and jump remains stable under loose termination.
 
 \begin{figure}[t]
     \centering
@@ -231,32 +274,46 @@ Figures~\ref{fig:squat_sequence} and~\ref{fig:gesture_sequence} show frame seque
     \label{fig:gesture_sequence}
 \end{figure}
 
-\subsection{Hard Reference-Only Prompts}
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_gradual_curriculum_sequence_panel.png}
+    \caption{Gradual squat curriculum rollout frames. Intermediate thresholds preserve long episodes in the metrics, while the final strict stage terminates early.}
+    \label{fig:gradual_sequence}
+\end{figure}
 
-We also generated reference motions for harder prompts without running PPO on them: jump, roll forward, backflip, and cartwheel. Figure~\ref{fig:hard_refs} shows that these references are qualitatively useful for diagnosing the generator-controller interface. Roll and cartwheel introduce contact-heavy, inverted, or ground-interaction segments, while the backflip prompt does not produce a clean backflip. These references are good candidates for future PPO runs, but the videos alone already show that semantic prompt difficulty and reference feasibility are additional bottlenecks.
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_jump_sequence_panel.png}
+    \caption{Jump rollout frames after loose-termination PPO training. This harder prompt is learnable under relaxed termination.}
+    \label{fig:jump_sequence}
+\end{figure}
+
+\subsection{Hard Reference Prompts}
+
+We also generated reference motions for harder prompts: jump, roll forward, backflip, and cartwheel. Figure~\ref{fig:hard_refs} shows that these references are qualitatively useful for diagnosing the generator-controller interface. We trained jump with loose termination, while roll, backflip, and cartwheel remain reference-only. Roll and cartwheel introduce contact-heavy, inverted, or ground-interaction segments, while the backflip prompt does not produce a clean backflip. These references are good candidates for future PPO runs, but the videos alone already show that semantic prompt difficulty and reference feasibility are additional bottlenecks.
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=\linewidth]{final_hard_reference_panel.png}
-    \caption{Hard reference-only prompts. The generated motions expose contact and semantic issues before any PPO training is attempted.}
+    \caption{Hard prompt references. Jump is later trainable under loose termination, while roll, backflip, and cartwheel expose contact and semantic issues before PPO training is attempted.}
     \label{fig:hard_refs}
 \end{figure}
 
 \section{Discussion}
 
-The main lesson is that the generated-motion to physical-control interface is sensitive to termination design, random seed, and training path. Strict terminations are not inherently bad: for static or gesture-heavy references, they preserve stable learning and final tracking quality. For squat, strict termination fails catastrophically on one seed but eventually succeeds on another. This suggests that difficult generated references can lie near a learnability boundary where small changes in initialization, generated motion, or exploration history change the outcome.
+The main lesson is that the generated-motion to physical-control interface is sensitive to termination design, random seed, and training path. Strict terminations are not inherently bad: for static or gesture-heavy references, they preserve stable learning and final tracking quality. For squat, strict termination fails catastrophically on one seed but eventually succeeds on another. Jump also succeeds under loose termination. This suggests that difficult generated references can lie near a learnability boundary where small changes in initialization, generated motion, or exploration history change the outcome.
 
 This also shows why tracking error must be interpreted together with episode length. The strict squat policy has low reported body-position and joint-position error because it only evaluates a short early segment. The more meaningful success indicators are reward, episode length, termination count, and qualitative rollouts.
 
-The curriculum result is negative for the schedules we tested. We implemented working loose-to-strict curricula and confirmed that training can resume across stages, but the walk curriculum did not improve over strict training. On squat seed 0, the loose first stage learned a full-horizon policy, but abrupt strict transfer collapsed almost immediately. This suggests that a useful curriculum may need gradual threshold schedules, mixed strict/loose rollouts, or state initialization strategies rather than a single hard switch.
+The curriculum result is negative for final strict performance, but informative. We implemented working loose-to-strict curricula and confirmed that training can resume across stages, but the walk curriculum did not improve over strict training. On squat seed 0, the loose first stage learned a full-horizon policy, but abrupt strict transfer collapsed almost immediately. The gradual schedule survives increasingly strict intermediate thresholds before failing only at the default strict stage. This suggests that a useful curriculum may need smoother threshold definitions, mixed strict/loose rollouts, or state initialization strategies rather than a single hard switch.
 
 \section{Limitations}
 
-This study is intentionally small. Most prompts use one seed, and squat uses two seeds plus an additional curriculum run. The conclusions should be viewed as empirical evidence for a failure mode rather than a broad benchmark. We also use simple diagnostics rather than learned feasibility predictors, and we do not yet estimate foot-contact consistency directly. The hard jump, roll, backflip, and cartwheel motions were generated and visualized but not trained with PPO. Finally, all results are in simulation; we do not deploy policies on hardware.
+This study is intentionally small. Most prompts use one seed, and squat uses two seeds plus additional curriculum runs. The conclusions should be viewed as empirical evidence for a failure mode rather than a broad benchmark. We also use simple diagnostics rather than learned feasibility predictors, and we do not yet estimate foot-contact consistency directly. Roll, backflip, and cartwheel were generated and visualized but not trained with PPO. Finally, all results are in simulation; we do not deploy policies on hardware.
 
 \section{Conclusion}
 
-We built and ran an end-to-end text-to-physics pipeline for Unitree G1 humanoid motion tracking using Kimodo, KimoLab, MuJoCo Warp, and PPO. In our prompt suite, easy gesture references are learnable under strict termination. Squat exposes a more delicate boundary: loose termination succeeds robustly, strict termination fails on one seed but recovers on another, and abrupt loose-to-strict curriculum fails on seed 0. Hard reference-only prompts further show that generated kinematics can be semantically weak or contact-heavy before PPO begins. Overall, the results support the project framing: the key research problem is the failure boundary between text-generated kinematic motion and physically executable humanoid control.
+We built and ran an end-to-end text-to-physics pipeline for Unitree G1 humanoid motion tracking using Kimodo, KimoLab, MuJoCo Warp, and PPO. In our prompt suite, easy gesture references are learnable under strict termination, and a harder jump reference is learnable under loose termination. Squat exposes a more delicate boundary: loose termination succeeds robustly, strict termination fails on one seed but recovers on another, abrupt loose-to-strict curriculum fails on seed 0, and gradual curriculum narrows the failure to the final strict threshold. Hard reference-only prompts further show that generated kinematics can be semantically weak or contact-heavy before PPO begins. Overall, the results support the project framing: the key research problem is the failure boundary between text-generated kinematic motion and physically executable humanoid control.
 
 \section*{Team Contributions}
 
