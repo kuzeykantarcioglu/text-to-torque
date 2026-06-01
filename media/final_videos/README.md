@@ -18,3 +18,7 @@ Expected local files after running the script:
 - `squat_strict.mp4`
 - `wave_strict.mp4`
 - `tap_strict.mp4`
+- `squat_gradual_thr2.mp4`
+- `squat_gradual_thr1.mp4`
+- `squat_gradual_strict.mp4`
+- `jump_loose.mp4`
