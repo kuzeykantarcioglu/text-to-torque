@@ -84,6 +84,40 @@ def _slugify(value: str, max_length: int = 48) -> str:
     return (slug or "motion")[:max_length].strip("-")
 
 
+def _parse_threshold_schedule(value: str) -> list[float | None]:
+    if not value.strip():
+        return []
+
+    schedule: list[float | None] = []
+    for raw_token in value.split(","):
+        token = raw_token.strip().lower()
+        if not token:
+            continue
+        if token in {"strict", "default"}:
+            schedule.append(None)
+        elif token == "loose":
+            schedule.append(100.0)
+        else:
+            schedule.append(float(token))
+    return schedule
+
+
+def _threshold_label(value: float | None) -> str:
+    if value is None:
+        return "strict"
+    if value >= 99.0:
+        return "loose"
+    return f"thr{value:g}".replace(".", "p")
+
+
+def _split_iterations(total_iterations: int, num_stages: int) -> list[int]:
+    if num_stages <= 0:
+        return []
+    base = total_iterations // num_stages
+    remainder = total_iterations % num_stages
+    return [base + (1 if index < remainder else 0) for index in range(num_stages)]
+
+
 def _run(command: list[str], cwd: str, env: dict[str, str] | None = None) -> None:
     import os
     import shlex
@@ -237,6 +271,7 @@ def kimolab_bringup(
     disable_terminations: bool,
     curriculum: bool,
     curriculum_stage_iterations: int,
+    curriculum_thresholds: str,
     record_train_video: bool,
     train_video_length: int,
     train_video_interval: int,
@@ -298,6 +333,7 @@ def kimolab_bringup(
         "disable_terminations": disable_terminations,
         "curriculum": curriculum,
         "curriculum_stage_iterations": curriculum_stage_iterations,
+        "curriculum_thresholds": curriculum_thresholds,
         "record_train_video": record_train_video,
         "train_video_length": train_video_length,
         "train_video_interval": train_video_interval,
@@ -391,7 +427,7 @@ def kimolab_bringup(
         def make_train_cmd(
             stage_run_name: str,
             stage_iterations: int,
-            stage_disable_terminations: bool,
+            stage_threshold: float | None,
             resume_from_run: str | None = None,
         ) -> list[str]:
             command = [
@@ -423,15 +459,15 @@ def kimolab_bringup(
                         "model_.*.pt",
                     ]
                 )
-            if stage_disable_terminations:
+            if stage_threshold is not None:
                 command.extend(
                     [
                         "--env.terminations.anchor-pos.params.threshold",
-                        "100.0",
+                        str(stage_threshold),
                         "--env.terminations.anchor-ori.params.threshold",
-                        "100.0",
+                        str(stage_threshold),
                         "--env.terminations.ee-body-pos.params.threshold",
-                        "100.0",
+                        str(stage_threshold),
                     ]
                 )
             if record_train_video:
@@ -457,38 +493,79 @@ def kimolab_bringup(
 
         try:
             if curriculum:
-                stage_one_iterations = min(curriculum_stage_iterations, max_iterations)
-                stage_two_iterations = max_iterations - stage_one_iterations
-                stage_one_name = f"{run_id}_stage1_loose"
-                stage_two_name = f"{run_id}_stage2_strict"
-                metadata["stage"] = "curriculum_stage1_loose"
-                metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
-                run_train_stage(
-                    make_train_cmd(
-                        stage_one_name,
-                        stage_one_iterations,
-                        stage_disable_terminations=True,
+                threshold_schedule = _parse_threshold_schedule(curriculum_thresholds)
+                if threshold_schedule:
+                    stage_iterations = _split_iterations(
+                        max_iterations, len(threshold_schedule)
                     )
-                )
-                sync_training_artifacts("curriculum_stage1_complete", 0.0)
-
-                if stage_two_iterations > 0:
-                    metadata["stage"] = "curriculum_stage2_strict"
+                    previous_stage_name = None
+                    for stage_index, (threshold, iterations) in enumerate(
+                        zip(threshold_schedule, stage_iterations, strict=True),
+                        start=1,
+                    ):
+                        if iterations <= 0:
+                            continue
+                        threshold_label = _threshold_label(threshold)
+                        stage_name = (
+                            f"{run_id}_stage{stage_index:02d}_{threshold_label}"
+                        )
+                        metadata["stage"] = (
+                            f"curriculum_stage{stage_index:02d}_{threshold_label}"
+                        )
+                        metadata["current_threshold"] = threshold
+                        metadata["current_stage_iterations"] = iterations
+                        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+                        run_train_stage(
+                            make_train_cmd(
+                                stage_name,
+                                iterations,
+                                stage_threshold=threshold,
+                                resume_from_run=(
+                                    f".*{previous_stage_name}"
+                                    if previous_stage_name is not None
+                                    else None
+                                ),
+                            )
+                        )
+                        sync_training_artifacts(
+                            f"curriculum_stage{stage_index:02d}_complete", 0.0
+                        )
+                        previous_stage_name = stage_name
+                else:
+                    stage_one_iterations = min(
+                        curriculum_stage_iterations, max_iterations
+                    )
+                    stage_two_iterations = max_iterations - stage_one_iterations
+                    stage_one_name = f"{run_id}_stage1_loose"
+                    stage_two_name = f"{run_id}_stage2_strict"
+                    metadata["stage"] = "curriculum_stage1_loose"
                     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
                     run_train_stage(
                         make_train_cmd(
-                            stage_two_name,
-                            stage_two_iterations,
-                            stage_disable_terminations=False,
-                            resume_from_run=f".*{stage_one_name}",
+                            stage_one_name,
+                            stage_one_iterations,
+                            stage_threshold=100.0,
                         )
                     )
+                    sync_training_artifacts("curriculum_stage1_complete", 0.0)
+
+                    if stage_two_iterations > 0:
+                        metadata["stage"] = "curriculum_stage2_strict"
+                        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+                        run_train_stage(
+                            make_train_cmd(
+                                stage_two_name,
+                                stage_two_iterations,
+                                stage_threshold=None,
+                                resume_from_run=f".*{stage_one_name}",
+                            )
+                        )
             else:
                 run_train_stage(
                     make_train_cmd(
                         run_id,
                         max_iterations,
-                        stage_disable_terminations=disable_terminations,
+                        stage_threshold=100.0 if disable_terminations else None,
                     )
                 )
         except BaseException:
@@ -531,6 +608,7 @@ def main(
     disable_terminations: bool = True,
     curriculum: bool = False,
     curriculum_stage_iterations: int = 1000,
+    curriculum_thresholds: str = "",
     record_train_video: bool = False,
     train_video_length: int = 200,
     train_video_interval: int = 10,
@@ -559,6 +637,7 @@ def main(
         disable_terminations=disable_terminations,
         curriculum=curriculum,
         curriculum_stage_iterations=curriculum_stage_iterations,
+        curriculum_thresholds=curriculum_thresholds,
         record_train_video=record_train_video,
         train_video_length=train_video_length,
         train_video_interval=train_video_interval,
