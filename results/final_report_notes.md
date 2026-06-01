@@ -22,6 +22,8 @@ Termination settings:
   under strict thresholds.
 - Gradual curriculum: squat seed 0; thresholds 100, 20, 10, 5, 2, 1, then
   default strict thresholds.
+- Calibrated threshold: squat seed 0; fixed intermediate thresholds selected
+  from the gradual-curriculum boundary and trained from scratch.
 
 Extra runs added on 5/31:
 
@@ -35,6 +37,8 @@ Extra runs added on 6/1:
 - Squat seed 0 gradual curriculum: thresholds 100 -> 20 -> 10 -> 5 -> 2 -> 1
   -> strict over 3000 total iterations.
 - Jump seed 0 loose PPO training for 2000 iterations.
+- Squat seed 0 direct calibrated-threshold PPO runs with fixed thresholds 1 and
+  2. These were interrupted around 1200 iterations, but logs/videos were synced.
 
 ## Main Results
 
@@ -93,6 +97,18 @@ This means the seed-0 squat policy is not simply unable to benefit from a
 curriculum. It survives several intermediate thresholds and collapses only when
 the final strict/default thresholds are restored.
 
+The direct calibrated-threshold runs turn that diagnosis into an intervention:
+
+- Direct threshold 2: final synced reward 12.41, episode length 250.0,
+  termination total 0.0.
+- Direct threshold 1: final synced reward 9.21, episode length 241.82,
+  termination total 0.33.
+
+These runs were interrupted before the planned 2000 iterations but already show
+that finite intermediate thresholds can recover squat seed-0 tracking from
+scratch. This is stronger than the curriculum-only story because it is a direct
+training intervention, not just an evaluation sweep.
+
 The jump loose PPO run is a useful positive hard-prompt result:
 
 - Jump loose: final reward 15.63, episode length 250.0, body-position error
@@ -129,10 +145,14 @@ high joint acceleration.
 - `figures/final_squat_extra_curves.png`: extra squat seed/curriculum curves.
 - `figures/final_gradual_curriculum_curves.png`: gradual seed-0 squat
   curriculum curves.
+- `figures/final_calibrated_threshold_curves.png`: loose/strict, gradual
+  intermediate thresholds, and direct fixed-threshold squat curves.
 - `figures/final_jump_training_curves.png`: loose jump PPO learning curves.
 - `figures/final_video_contact_sheet.png`: thumbnails from final rollout videos.
 - `figures/final_gradual_curriculum_sequence_panel.png`: rollout thumbnails for
   threshold-2, threshold-1, and strict stages of the gradual squat curriculum.
+- `figures/final_calibrated_threshold_sequence_panel.png`: rollout thumbnails
+  comparing strict, direct threshold 1, direct threshold 2, and loose squat.
 - `figures/final_jump_sequence_panel.png`: rollout thumbnails for loose jump
   PPO.
 - `figures/final_hard_reference_panel.png`: jump/roll/backflip/cartwheel
@@ -149,12 +169,15 @@ tracking. The strongest claim is:
 > motions with large root-height changes. Relaxed terminations recover
 > full-horizon learning reliably on squat, while abrupt loose-to-strict
 > curricula can collapse under strict thresholds. A gradual curriculum localizes
-> the squat seed-0 failure boundary to the final default strict threshold, and a
-> loose jump run shows that some harder generated references are still learnable.
+> the squat seed-0 failure boundary to the final default strict threshold, and
+> direct calibrated-threshold training recovers full-horizon squat behavior from
+> scratch. A loose jump run shows that some harder generated references are
+> still learnable.
 
 Avoid claiming that the curriculum broadly improves learning. The current data
 supports "implemented and tested; negative for final strict performance, but
-useful for diagnosing where strict termination becomes too brittle."
+useful for diagnosing where strict termination becomes too brittle." The direct
+calibrated-threshold run is the positive method result.
 
 ## AI Tools Disclosure Draft
 

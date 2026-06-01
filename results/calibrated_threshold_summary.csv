@@ -1,0 +1,7 @@
+condition,final_reward,final_episode_length,body_pos_error,joint_pos_error,anchor_pos_terminations,anchor_ori_terminations,ee_body_pos_terminations,termination_total,steps_per_second
+Loose baseline,13.6573,250,0.27128,1.54512,0,0,0,0,24638
+Strict baseline,0.837295,13.52,0.233561,0.483804,71.2917,0,73.5833,144.875,31223
+"Gradual curriculum, threshold 2",13.0399,250,0.292575,1.70792,0,0,0,0,24405
+"Gradual curriculum, threshold 1",11.9341,244.86,0.293905,1.42301,0.0833333,0.208333,0,0.291667,22781
+Direct calibrated threshold 2,12.4047,250,0.262895,1.72276,0,0,0,0,18363
+Direct calibrated threshold 1,9.21389,241.82,0.351343,1.66205,0.291667,0.0416667,0,0.333333,18179

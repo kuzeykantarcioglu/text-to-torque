@@ -24,3 +24,5 @@
 | 1780273575_a-person-squats-down-and-stands-up_seed1_squat-strict-seed1-extra | squat-strict-seed1-extra | A person squats down and stands up | 0.552 | 0.842 | 7.377 | 9.348 | 127.140 | False | 3 | 5 |
 | 1780296901_a-person-jumps_seed0_jump-loose-extra | jump-loose-extra | A person jumps | 0.395 | 1.785 | 12.931 | 12.088 | 364.787 | False | 3 | 5 |
 | 1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum | squat-gradual-curriculum | A person squats down and stands up | 0.528 | 0.824 | 3.845 | 3.864 | 42.652 | False | 14 | 14 |
+| 1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr1 | squat-fixed-thr1 | A person squats down and stands up | 0.528 | 0.824 | 3.845 | 3.864 | 42.652 | False | 3 | 3 |
+| 1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr2 | squat-fixed-thr2 | A person squats down and stands up | 0.528 | 0.824 | 3.845 | 3.864 | 42.652 | False | 3 | 3 |

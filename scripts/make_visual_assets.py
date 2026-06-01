@@ -51,6 +51,14 @@ VIDEO_SPECS = {
         "label": "Squat gradual strict",
         "path": Path("motions/from_modal/1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum/logs/rsl_rl/g1_tracking/2026-06-01_07-59-18_1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum_stage07_strict/videos/train/rl-video-step-10000.mp4"),
     },
+    "squat_fixed_thr1": {
+        "label": "Squat direct thr=1",
+        "path_glob": "motions/from_modal/1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr1/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-20000.mp4",
+    },
+    "squat_fixed_thr2": {
+        "label": "Squat direct thr=2",
+        "path_glob": "motions/from_modal/1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr2/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-20000.mp4",
+    },
     "jump_loose": {
         "label": "Jump loose",
         "path": Path("motions/from_modal/1780296901_a-person-jumps_seed0_jump-loose-extra/logs/rsl_rl/g1_tracking/2026-06-01_07-00-29_1780296901_a-person-jumps_seed0_jump-loose-extra/videos/train/rl-video-step-40000.mp4"),
@@ -99,6 +107,12 @@ PANELS = [
         "filename": "final_gradual_curriculum_sequence_panel.png",
         "title": "Gradual squat curriculum: strict transfer collapses",
         "rows": ["squat_gradual_thr2", "squat_gradual_thr1", "squat_gradual_strict"],
+        "times": [0.2, 0.8, 1.4, 2.0],
+    },
+    {
+        "filename": "final_calibrated_threshold_sequence_panel.png",
+        "title": "Direct calibrated squat thresholds",
+        "rows": ["squat_strict", "squat_fixed_thr1", "squat_fixed_thr2", "squat_loose"],
         "times": [0.2, 0.8, 1.4, 2.0],
     },
     {
@@ -162,6 +176,17 @@ def _extract_frame(video_path: Path, timestamp: float, output_path: Path) -> Non
     )
 
 
+def _resolve_video_path(spec: dict[str, object]) -> Path:
+    if "path" in spec:
+        return Path(spec["path"])
+    if "path_glob" in spec:
+        matches = sorted(Path().glob(str(spec["path_glob"])))
+        if matches:
+            return matches[-1]
+        raise SystemExit(f"Missing video matching glob: {spec['path_glob']}")
+    raise SystemExit(f"Video spec has neither path nor path_glob: {spec}")
+
+
 def _draw_centered(draw, box: tuple[int, int, int, int], text: str, font, fill: str) -> None:
     x0, y0, x1, y1 = box
     text_box = draw.textbbox((0, 0), text, font=font)
@@ -210,7 +235,7 @@ def create_panel(
         tmpdir = Path(tmp)
         for row, key in enumerate(row_keys):
             spec = video_specs[key]
-            video_path = Path(spec["path"])
+            video_path = _resolve_video_path(spec)
             if not video_path.exists():
                 raise SystemExit(f"Missing video: {video_path}")
 
@@ -242,7 +267,7 @@ def create_hard_reference_panel(output_dir: Path) -> None:
 def copy_selected_videos(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for key, spec in VIDEO_SPECS.items():
-        source = Path(spec["path"])
+        source = _resolve_video_path(spec)
         if not source.exists():
             raise SystemExit(f"Missing video: {source}")
         shutil.copy2(source, output_dir / f"{key}.mp4")

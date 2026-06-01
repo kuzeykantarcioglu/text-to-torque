@@ -29,11 +29,11 @@ Benji Warburton \\
 
 Text-to-motion models can generate plausible humanoid kinematics from natural language, but a visually plausible trajectory is not necessarily dynamically feasible for a torque-controlled robot. This project studies the interface between generated kinematic references and reinforcement-learned physical control. We use KimoLab, which connects Kimodo text-conditioned motion generation to MuJoCo/MuJoCo Warp PPO tracking for the Unitree G1 humanoid. Our main question is which generated reference motions are learnable by downstream PPO tracking, and whether relaxed or curriculum termination settings improve learning on difficult references.
 
-We built a Modal-based experiment pipeline that generates text-conditioned Unitree G1 motions, converts them into MuJoCo reference trajectories, trains PPO tracking policies, periodically saves checkpoints and rollout videos, downloads artifacts, computes reference-motion diagnostics, and produces analysis figures. We evaluate four main prompts: walking forward, waving with the right hand, tapping the head, and squatting down then standing up. We also add a harder jump PPO run and reference-only inspections for roll, backflip, and cartwheel prompts. Before PPO training, we compute simple diagnostics such as root-height range, root speed, and joint acceleration. We then compare loose termination thresholds, strict termination thresholds, abrupt loose-to-strict curricula, and a gradual termination-threshold curriculum for squat.
+We built a Modal-based experiment pipeline that generates text-conditioned Unitree G1 motions, converts them into MuJoCo reference trajectories, trains PPO tracking policies, periodically saves checkpoints and rollout videos, downloads artifacts, computes reference-motion diagnostics, and produces analysis figures. We evaluate four main prompts: walking forward, waving with the right hand, tapping the head, and squatting down then standing up. We also add a harder jump PPO run and reference-only inspections for roll, backflip, and cartwheel prompts. Before PPO training, we compute simple diagnostics such as root-height range, root speed, and joint acceleration. We then compare loose termination thresholds, strict termination thresholds, abrupt loose-to-strict curricula, a gradual termination-threshold curriculum for squat, and direct calibrated-threshold training.
 
 The main empirical result is that termination design exposes a seed- and path-dependent failure boundary. Strict termination works well for gesture-like motions: wave and tap-head policies reach near-full episode lengths and final rewards around 18 under strict thresholds. Walking is also learnable under strict termination, reaching final reward 13.12 and mean episode length 244.78 out of 250. In contrast, strict termination fails severely on one squat reference seed, which has the largest root-height range among our initial references. The loose seed-0 squat policy reaches final reward 13.66 and full 250-step episodes, while the strict seed-0 squat policy reaches only reward 0.84 and terminates after 13.52 steps on average. A second squat seed later shows that strict training can recover with enough samples, but loose termination is more robust early and across seeds.
 
-The curriculum experiments are useful negative results, but they are more informative after adding a gradual schedule. Our two-stage walk curriculum successfully resumes training from a loose first stage into a strict second stage, but it does not outperform strict training from scratch. On squat seed 0, abrupt loose-to-strict transfer collapses back to short episodes. A gradual schedule survives thresholds of 20, 10, 5, and 2, mostly survives threshold 1, and then collapses under the default strict thresholds. This localizes the failure boundary rather than simply showing that curriculum code failed. The jump loose-termination run reaches full episodes with final reward 15.63, showing that semantic difficulty alone is not enough to predict failure. Overall, the project provides a small but complete empirical study of the gap between text-generated kinematic motion and physically executable humanoid control.
+The curriculum experiments are useful negative results, but they are more informative after adding a gradual schedule. Our two-stage walk curriculum successfully resumes training from a loose first stage into a strict second stage, but it does not outperform strict training from scratch. On squat seed 0, abrupt loose-to-strict transfer collapses back to short episodes. A gradual schedule survives thresholds of 20, 10, 5, and 2, mostly survives threshold 1, and then collapses under the default strict thresholds. This localizes the failure boundary rather than simply showing that curriculum code failed. We then use this boundary to train new squat policies from scratch with fixed calibrated thresholds. Direct threshold-2 training reaches full episodes, reward 12.41, and zero final terminations; direct threshold-1 training also mostly recovers, reaching reward 9.21 and 241.82-step episodes. The jump loose-termination run reaches full episodes with final reward 15.63, showing that semantic difficulty alone is not enough to predict failure. Overall, the project provides a small but complete empirical study of the gap between text-generated kinematic motion and physically executable humanoid control, plus a concrete calibrated-termination intervention for the hardest seed-0 squat case.
 
 \clearpage
 
@@ -86,12 +86,13 @@ These diagnostics are intentionally simple. They are meant to test whether cheap
 
 \subsection{Termination Conditions}
 
-We compare four termination settings:
+We compare five termination settings:
 \begin{itemize}
     \item \textbf{Loose}: large tracking-deviation thresholds, so the policy can experience the full reference even when tracking is poor early in training.
     \item \textbf{Strict}: standard tighter tracking-deviation thresholds, so episodes end when the robot deviates too far from the reference.
     \item \textbf{Curriculum}: a two-stage schedule used for walking and squat: 1000 iterations with loose thresholds, then resume from that checkpoint for 1000 iterations with strict thresholds.
     \item \textbf{Gradual curriculum}: a seven-stage squat schedule with thresholds $100, 20, 10, 5, 2, 1$, then strict defaults, used to test where loose tracking becomes brittle.
+    \item \textbf{Calibrated threshold}: fixed intermediate termination thresholds chosen from the gradual curriculum boundary, then trained from scratch on the same generated squat reference.
 \end{itemize}
 
 The motivation is that strict termination can be useful once a policy is competent, but harmful if it ends episodes before the policy observes enough of the motion to improve.
@@ -245,6 +246,38 @@ Strict & 0.707 & 12.33 & 0.227 & 0.484 & 145.667 \\
     \label{fig:gradual_squat}
 \end{figure}
 
+\subsection{Direct Calibrated Threshold Training}
+
+The gradual curriculum suggests that the strict seed-0 squat failure is not caused by PPO being unable to learn the generated reference at all. Instead, the failure appears at the termination boundary. We therefore used the gradual-curriculum diagnostic to choose fixed intermediate thresholds and trained new seed-0 squat policies from scratch with thresholds 1 and 2. These runs were interrupted before the planned 2000 iterations, but synchronized logs and videos were preserved through roughly 1200 iterations, which is enough to compare them against the strict failure mode.
+
+Table~\ref{tab:calibrated_threshold} and Figure~\ref{fig:calibrated_threshold} show that calibrated thresholds recover much of the loose-baseline performance without disabling termination entirely. Direct threshold-2 training reaches reward 12.41, full 250-step episodes, and zero final terminations. Direct threshold-1 training is tighter but still mostly recovers, reaching reward 9.21 and 241.82-step episodes with only 0.33 final terminations. In contrast, the default strict seed-0 squat baseline reaches reward 0.84 and only 13.52-step episodes.
+
+\begin{table}[t]
+\centering
+\caption{Calibrated termination thresholds for seed-0 squat. Direct threshold-2 training recovers full-horizon behavior from scratch, while default strict termination collapses.}
+\label{tab:calibrated_threshold}
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Condition & Reward & Episode length & Body pos. err. & Term. total \\
+\midrule
+Loose baseline & 13.657 & 250.00 & 0.271 & 0.000 \\
+Strict baseline & 0.837 & 13.52 & 0.234 & 144.875 \\
+Gradual curriculum, threshold 2 & 13.040 & 250.00 & 0.293 & 0.000 \\
+Gradual curriculum, threshold 1 & 11.934 & 244.86 & 0.294 & 0.292 \\
+Direct calibrated threshold 2 & 12.405 & 250.00 & 0.263 & 0.000 \\
+Direct calibrated threshold 1 & 9.214 & 241.82 & 0.351 & 0.333 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_calibrated_threshold_curves.png}
+    \caption{Calibrated-threshold squat learning curves. Intermediate thresholds recover long episodes from scratch, unlike the default strict seed-0 baseline.}
+    \label{fig:calibrated_threshold}
+\end{figure}
+
 \subsection{Jump Training}
 
 We also trained a loose-termination PPO policy for the harder ``a person jumps'' prompt. The run reaches final reward 15.63, full 250-step episodes, body-position error 0.046, joint-position error 0.727, and zero final terminations. This result is useful because it prevents an overly simple story where all semantically harder prompts fail. In this setup, jump is learnable under loose termination, while squat seed 0 remains brittle specifically at the strict termination boundary.
@@ -258,7 +291,7 @@ We also trained a loose-termination PPO policy for the harder ``a person jumps''
 
 \subsection{Qualitative Rollouts}
 
-Figures~\ref{fig:squat_sequence}, \ref{fig:gesture_sequence}, \ref{fig:gradual_sequence}, and~\ref{fig:jump_sequence} show frame sequences from the saved rollout videos. The qualitative videos match the metrics: strict gesture policies are stable, strict squat repeatedly terminates early, intermediate gradual-curriculum stages produce much longer episodes than the final strict stage, and jump remains stable under loose termination.
+Figures~\ref{fig:squat_sequence}, \ref{fig:gesture_sequence}, \ref{fig:gradual_sequence}, \ref{fig:calibrated_sequence}, and~\ref{fig:jump_sequence} show frame sequences from the saved rollout videos. The qualitative videos match the metrics: strict gesture policies are stable, strict squat repeatedly terminates early, intermediate gradual-curriculum stages produce much longer episodes than the final strict stage, calibrated thresholds recover long squat rollouts, and jump remains stable under loose termination.
 
 \begin{figure}[t]
     \centering
@@ -279,6 +312,13 @@ Figures~\ref{fig:squat_sequence}, \ref{fig:gesture_sequence}, \ref{fig:gradual_s
     \includegraphics[width=\linewidth]{final_gradual_curriculum_sequence_panel.png}
     \caption{Gradual squat curriculum rollout frames. Intermediate thresholds preserve long episodes in the metrics, while the final strict stage terminates early.}
     \label{fig:gradual_sequence}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{final_calibrated_threshold_sequence_panel.png}
+    \caption{Direct calibrated-threshold squat rollout frames. Thresholds 1 and 2 produce substantially longer rollouts than default strict termination while retaining finite deviation limits.}
+    \label{fig:calibrated_sequence}
 \end{figure}
 
 \begin{figure}[t]
@@ -305,7 +345,7 @@ The main lesson is that the generated-motion to physical-control interface is se
 
 This also shows why tracking error must be interpreted together with episode length. The strict squat policy has low reported body-position and joint-position error because it only evaluates a short early segment. The more meaningful success indicators are reward, episode length, termination count, and qualitative rollouts.
 
-The curriculum result is negative for final strict performance, but informative. We implemented working loose-to-strict curricula and confirmed that training can resume across stages, but the walk curriculum did not improve over strict training. On squat seed 0, the loose first stage learned a full-horizon policy, but abrupt strict transfer collapsed almost immediately. The gradual schedule survives increasingly strict intermediate thresholds before failing only at the default strict stage. This suggests that a useful curriculum may need smoother threshold definitions, mixed strict/loose rollouts, or state initialization strategies rather than a single hard switch.
+The curriculum result is negative for final strict performance, but informative. We implemented working loose-to-strict curricula and confirmed that training can resume across stages, but the walk curriculum did not improve over strict training. On squat seed 0, the loose first stage learned a full-horizon policy, but abrupt strict transfer collapsed almost immediately. The gradual schedule survives increasingly strict intermediate thresholds before failing only at the default strict stage. This made it possible to turn the diagnostic into an intervention: training directly with calibrated thresholds 1 or 2 avoids the default strict collapse, with threshold 2 nearly matching the loose baseline while still retaining finite deviation limits. This suggests that a useful curriculum or deployment policy may need explicit threshold calibration, smoother threshold definitions, mixed strict/loose rollouts, or state initialization strategies rather than a single hard switch to default strict thresholds.
 
 \section{Limitations}
 
@@ -313,7 +353,7 @@ This study is intentionally small. Most prompts use one seed, and squat uses two
 
 \section{Conclusion}
 
-We built and ran an end-to-end text-to-physics pipeline for Unitree G1 humanoid motion tracking using Kimodo, KimoLab, MuJoCo Warp, and PPO. In our prompt suite, easy gesture references are learnable under strict termination, and a harder jump reference is learnable under loose termination. Squat exposes a more delicate boundary: loose termination succeeds robustly, strict termination fails on one seed but recovers on another, abrupt loose-to-strict curriculum fails on seed 0, and gradual curriculum narrows the failure to the final strict threshold. Hard reference-only prompts further show that generated kinematics can be semantically weak or contact-heavy before PPO begins. Overall, the results support the project framing: the key research problem is the failure boundary between text-generated kinematic motion and physically executable humanoid control.
+We built and ran an end-to-end text-to-physics pipeline for Unitree G1 humanoid motion tracking using Kimodo, KimoLab, MuJoCo Warp, and PPO. In our prompt suite, easy gesture references are learnable under strict termination, and a harder jump reference is learnable under loose termination. Squat exposes a more delicate boundary: loose termination succeeds robustly, strict termination fails on one seed but recovers on another, abrupt loose-to-strict curriculum fails on seed 0, and gradual curriculum narrows the failure to the final strict threshold. Using that boundary as an intervention, direct calibrated-threshold training recovers full-horizon squat behavior from scratch. Hard reference-only prompts further show that generated kinematics can be semantically weak or contact-heavy before PPO begins. Overall, the results support the project framing: the key research problem is the failure boundary between text-generated kinematic motion and physically executable humanoid control.
 
 \section*{Team Contributions}
 

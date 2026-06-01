@@ -88,10 +88,46 @@ CONDITION_COLORS = {
     "Loose seed 1": "#4c78a8",
     "Strict seed 1": "#f58518",
     "Jump loose": "#b279a2",
+    "Threshold 1": "#e45756",
+    "Threshold 2": "#b279a2",
+    "Gradual thr=1": "#e45756",
+    "Gradual thr=2": "#f58518",
 }
 
 GRADUAL_CURRICULUM_RUN = "1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum"
 JUMP_LOOSE_RUN = "1780296901_a-person-jumps_seed0_jump-loose-extra"
+CALIBRATED_THRESHOLD_RUNS = [
+    {
+        "run_id": "1780201117_a-person-squats-down-and-stands-up_seed0_loose-video",
+        "condition": "loose_video",
+        "display_condition": "Loose baseline",
+    },
+    {
+        "run_id": "1780201117_a-person-squats-down-and-stands-up_seed0_strict",
+        "condition": "strict",
+        "display_condition": "Strict baseline",
+    },
+    {
+        "run_id": GRADUAL_CURRICULUM_RUN,
+        "condition": "curriculum_stage05_thr2",
+        "display_condition": "Gradual curriculum, threshold 2",
+    },
+    {
+        "run_id": GRADUAL_CURRICULUM_RUN,
+        "condition": "curriculum_stage06_thr1",
+        "display_condition": "Gradual curriculum, threshold 1",
+    },
+    {
+        "run_id": "1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr2",
+        "condition": "squat-fixed-thr2",
+        "display_condition": "Direct calibrated threshold 2",
+    },
+    {
+        "run_id": "1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr1",
+        "condition": "squat-fixed-thr1",
+        "display_condition": "Direct calibrated threshold 1",
+    },
+]
 GRADUAL_STAGE_SPECS = [
     ("curriculum_stage01_loose", "thr=100", "#4c78a8"),
     ("curriculum_stage02_thr20", "thr=20", "#72b7b2"),
@@ -403,6 +439,64 @@ def _write_jump_table(summary: pd.DataFrame, csv_path: Path, md_path: Path) -> p
     table.to_csv(csv_path, index=False, float_format="%.6g")
     _write_markdown_table(table, md_path)
     return jump
+
+
+def _write_calibrated_threshold_table(
+    summary: pd.DataFrame,
+    csv_path: Path,
+    md_path: Path,
+) -> pd.DataFrame:
+    rows = []
+    for spec in CALIBRATED_THRESHOLD_RUNS:
+        match = summary[
+            (summary["run_id"] == spec["run_id"])
+            & (summary["condition"] == spec["condition"])
+        ].copy()
+        if match.empty:
+            print(f"[WARN] Missing calibrated-threshold row: {spec}")
+            continue
+        row = match.iloc[0].copy()
+        row["display_condition"] = spec["display_condition"]
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    calibrated = pd.DataFrame(rows)
+    calibrated["termination_total"] = (
+        calibrated.get("Episode_Termination/anchor_pos", 0).fillna(0)
+        + calibrated.get("Episode_Termination/anchor_ori", 0).fillna(0)
+        + calibrated.get("Episode_Termination/ee_body_pos", 0).fillna(0)
+    )
+    columns = [
+        "display_condition",
+        "Train/mean_reward",
+        "Train/mean_episode_length",
+        "Metrics/motion/error_body_pos",
+        "Metrics/motion/error_joint_pos",
+        "Episode_Termination/anchor_pos",
+        "Episode_Termination/anchor_ori",
+        "Episode_Termination/ee_body_pos",
+        "termination_total",
+        "Perf/total_fps",
+    ]
+    table = calibrated[columns].rename(
+        columns={
+            "display_condition": "condition",
+            "Train/mean_reward": "final_reward",
+            "Train/mean_episode_length": "final_episode_length",
+            "Metrics/motion/error_body_pos": "body_pos_error",
+            "Metrics/motion/error_joint_pos": "joint_pos_error",
+            "Episode_Termination/anchor_pos": "anchor_pos_terminations",
+            "Episode_Termination/anchor_ori": "anchor_ori_terminations",
+            "Episode_Termination/ee_body_pos": "ee_body_pos_terminations",
+            "Perf/total_fps": "steps_per_second",
+        }
+    )
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(csv_path, index=False, float_format="%.6g")
+    _write_markdown_table(table, md_path)
+    return calibrated
 
 
 def _plot_outcome_bars(final: pd.DataFrame, output_path: Path) -> None:
@@ -742,6 +836,50 @@ def main() -> None:
                     "color": color,
                 }
                 for condition, label, color in GRADUAL_STAGE_SPECS
+            ],
+        )
+
+    calibrated = _write_calibrated_threshold_table(
+        summary,
+        args.results_dir / "calibrated_threshold_summary.csv",
+        args.results_dir / "calibrated_threshold_summary.md",
+    )
+    if not calibrated.empty:
+        _plot_comparison_curves(
+            metrics,
+            args.figures_dir / "final_calibrated_threshold_curves.png",
+            "Squat seed 0: calibrated termination thresholds",
+            [
+                {
+                    "run_id": "1780201117_a-person-squats-down-and-stands-up_seed0_loose-video",
+                    "condition": "loose_video",
+                    "label": "Loose",
+                },
+                {
+                    "run_id": "1780201117_a-person-squats-down-and-stands-up_seed0_strict",
+                    "condition": "strict",
+                    "label": "Strict",
+                },
+                {
+                    "run_id": GRADUAL_CURRICULUM_RUN,
+                    "condition": "curriculum_stage05_thr2",
+                    "label": "Gradual thr=2",
+                },
+                {
+                    "run_id": GRADUAL_CURRICULUM_RUN,
+                    "condition": "curriculum_stage06_thr1",
+                    "label": "Gradual thr=1",
+                },
+                {
+                    "run_id": "1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr2",
+                    "condition": "squat-fixed-thr2",
+                    "label": "Threshold 2",
+                },
+                {
+                    "run_id": "1780339437_a-person-squats-down-and-stands-up_seed0_squat-fixed-thr1",
+                    "condition": "squat-fixed-thr1",
+                    "label": "Threshold 1",
+                },
             ],
         )
 

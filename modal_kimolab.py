@@ -72,6 +72,7 @@ image = (
         "cd /root/kimolab && /root/kimolab/.venv/bin/python -c "
         "\"import mujoco_warp; print('mujoco_warp import ok')\"",
     )
+    .pip_install("numpy")
 )
 
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
@@ -116,6 +117,76 @@ def _split_iterations(total_iterations: int, num_stages: int) -> list[int]:
     base = total_iterations // num_stages
     remainder = total_iterations % num_stages
     return [base + (1 if index < remainder else 0) for index in range(num_stages)]
+
+
+def _condition_motion_csv(
+    input_path: object,
+    output_path: object,
+    hold_seconds: float,
+    smoothing_window: int,
+    input_fps: float = 30.0,
+) -> dict[str, object]:
+    import numpy as np
+    from pathlib import Path
+
+    source = Path(input_path)
+    destination = Path(output_path)
+    motion = np.loadtxt(source, delimiter=",", dtype=np.float64)
+    if motion.ndim == 1:
+        motion = motion[None, :]
+    if motion.shape[1] < 8:
+        raise ValueError(f"Expected root pose plus joints in {source}, got {motion.shape}")
+
+    original_frames = int(motion.shape[0])
+    hold_frames = max(0, int(round(hold_seconds * input_fps)))
+    if hold_frames:
+        hold = np.repeat(motion[:1], hold_frames, axis=0)
+        motion = np.concatenate([hold, motion], axis=0)
+
+    smoothing_window = int(smoothing_window)
+    if smoothing_window > 1:
+        if smoothing_window % 2 == 0:
+            smoothing_window += 1
+        smoothing_window = min(smoothing_window, motion.shape[0])
+        if smoothing_window % 2 == 0:
+            smoothing_window -= 1
+        if smoothing_window > 1:
+            pad = smoothing_window // 2
+            kernel = np.ones(smoothing_window, dtype=np.float64) / float(smoothing_window)
+
+            quats = motion[:, 3:7].copy()
+            for index in range(1, quats.shape[0]):
+                if float(np.dot(quats[index - 1], quats[index])) < 0.0:
+                    quats[index] *= -1.0
+            smoothed = motion.copy()
+            smooth_columns = list(range(0, 3)) + list(range(3, 7)) + list(range(7, motion.shape[1]))
+            padded = np.pad(motion[:, smooth_columns], ((pad, pad), (0, 0)), mode="edge")
+            smoothed[:, smooth_columns] = np.apply_along_axis(
+                lambda values: np.convolve(values, kernel, mode="valid"),
+                axis=0,
+                arr=padded,
+            )
+            smoothed[:, 3:7] = quats
+            padded_quats = np.pad(quats, ((pad, pad), (0, 0)), mode="edge")
+            smoothed[:, 3:7] = np.apply_along_axis(
+                lambda values: np.convolve(values, kernel, mode="valid"),
+                axis=0,
+                arr=padded_quats,
+            )
+            quat_norm = np.linalg.norm(smoothed[:, 3:7], axis=1, keepdims=True)
+            smoothed[:, 3:7] = smoothed[:, 3:7] / np.maximum(quat_norm, 1e-8)
+            motion = smoothed
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    np.savetxt(destination, motion, delimiter=",", fmt="%.18e")
+    return {
+        "original_frames": original_frames,
+        "conditioned_frames": int(motion.shape[0]),
+        "hold_frames": hold_frames,
+        "hold_seconds": hold_seconds,
+        "smoothing_window": smoothing_window,
+        "input_fps": input_fps,
+    }
 
 
 def _run(command: list[str], cwd: str, env: dict[str, str] | None = None) -> None:
@@ -272,6 +343,11 @@ def kimolab_bringup(
     curriculum: bool,
     curriculum_stage_iterations: int,
     curriculum_thresholds: str,
+    reference_hold_seconds: float,
+    reference_smoothing_window: int,
+    anchor_pos_threshold: float,
+    anchor_ori_threshold: float,
+    ee_body_pos_threshold: float,
     record_train_video: bool,
     train_video_length: int,
     train_video_interval: int,
@@ -309,6 +385,7 @@ def kimolab_bringup(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     csv_path = work_dir / "motion.csv"
+    conditioned_csv_path = work_dir / "motion_conditioned.csv"
     npz_path = work_dir / "motion.npz"
     reference_video_candidates = [
         work_dir / "motion.mp4",
@@ -334,6 +411,11 @@ def kimolab_bringup(
         "curriculum": curriculum,
         "curriculum_stage_iterations": curriculum_stage_iterations,
         "curriculum_thresholds": curriculum_thresholds,
+        "reference_hold_seconds": reference_hold_seconds,
+        "reference_smoothing_window": reference_smoothing_window,
+        "anchor_pos_threshold": anchor_pos_threshold,
+        "anchor_ori_threshold": anchor_ori_threshold,
+        "ee_body_pos_threshold": ee_body_pos_threshold,
         "record_train_video": record_train_video,
         "train_video_length": train_video_length,
         "train_video_interval": train_video_interval,
@@ -361,13 +443,26 @@ def kimolab_bringup(
         cwd=KIMOLAB_DIR,
     )
 
+    conversion_csv_path = csv_path
+    if reference_hold_seconds > 0.0 or reference_smoothing_window > 1:
+        conditioning = _condition_motion_csv(
+            csv_path,
+            conditioned_csv_path,
+            hold_seconds=reference_hold_seconds,
+            smoothing_window=reference_smoothing_window,
+            input_fps=30.0,
+        )
+        conversion_csv_path = conditioned_csv_path
+        metadata["reference_conditioning"] = conditioning
+        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+
     _run(
         [
             "/root/kimolab/.venv/bin/python",
             "-m",
             "mjlab.scripts.csv_to_npz",
             "--input-file",
-            str(csv_path),
+            str(conversion_csv_path),
             "--output-name",
             f"{_slugify(prompt)}_seed{seed}",
             "--input-fps",
@@ -388,6 +483,8 @@ def kimolab_bringup(
     shutil.copy2(tmp_npz, npz_path)
 
     shutil.copy2(csv_path, output_dir / "motion.csv")
+    if conditioned_csv_path.exists():
+        shutil.copy2(conditioned_csv_path, output_dir / "motion_conditioned.csv")
     shutil.copy2(npz_path, output_dir / "motion.npz")
     for reference_video_path in reference_video_candidates:
         if render_reference and reference_video_path.exists():
@@ -396,6 +493,8 @@ def kimolab_bringup(
 
     metadata["stage"] = "reference_ready"
     metadata["csv"] = "motion.csv"
+    if conditioned_csv_path.exists():
+        metadata["conditioned_csv"] = "motion_conditioned.csv"
     metadata["npz"] = "motion.npz"
     if (output_dir / "reference_motion.mp4").exists():
         metadata["reference_video"] = "reference_motion.mp4"
@@ -459,15 +558,35 @@ def kimolab_bringup(
                         "model_.*.pt",
                     ]
                 )
-            if stage_threshold is not None:
+            effective_anchor_pos_threshold = stage_threshold
+            effective_anchor_ori_threshold = stage_threshold
+            effective_ee_body_pos_threshold = stage_threshold
+            if anchor_pos_threshold >= 0.0:
+                effective_anchor_pos_threshold = anchor_pos_threshold
+            if anchor_ori_threshold >= 0.0:
+                effective_anchor_ori_threshold = anchor_ori_threshold
+            if ee_body_pos_threshold >= 0.0:
+                effective_ee_body_pos_threshold = ee_body_pos_threshold
+
+            if effective_anchor_pos_threshold is not None:
                 command.extend(
                     [
                         "--env.terminations.anchor-pos.params.threshold",
-                        str(stage_threshold),
+                        str(effective_anchor_pos_threshold),
+                    ]
+                )
+            if effective_anchor_ori_threshold is not None:
+                command.extend(
+                    [
                         "--env.terminations.anchor-ori.params.threshold",
-                        str(stage_threshold),
+                        str(effective_anchor_ori_threshold),
+                    ]
+                )
+            if effective_ee_body_pos_threshold is not None:
+                command.extend(
+                    [
                         "--env.terminations.ee-body-pos.params.threshold",
-                        str(stage_threshold),
+                        str(effective_ee_body_pos_threshold),
                     ]
                 )
             if record_train_video:
@@ -609,6 +728,11 @@ def main(
     curriculum: bool = False,
     curriculum_stage_iterations: int = 1000,
     curriculum_thresholds: str = "",
+    reference_hold_seconds: float = 0.0,
+    reference_smoothing_window: int = 0,
+    anchor_pos_threshold: float = -1.0,
+    anchor_ori_threshold: float = -1.0,
+    ee_body_pos_threshold: float = -1.0,
     record_train_video: bool = False,
     train_video_length: int = 200,
     train_video_interval: int = 10,
@@ -638,6 +762,11 @@ def main(
         curriculum=curriculum,
         curriculum_stage_iterations=curriculum_stage_iterations,
         curriculum_thresholds=curriculum_thresholds,
+        reference_hold_seconds=reference_hold_seconds,
+        reference_smoothing_window=reference_smoothing_window,
+        anchor_pos_threshold=anchor_pos_threshold,
+        anchor_ori_threshold=anchor_ori_threshold,
+        ee_body_pos_threshold=ee_body_pos_threshold,
         record_train_video=record_train_video,
         train_video_length=train_video_length,
         train_video_interval=train_video_interval,
