@@ -72,7 +72,7 @@ image = (
         "cd /root/kimolab && /root/kimolab/.venv/bin/python -c "
         "\"import mujoco_warp; print('mujoco_warp import ok')\"",
     )
-    .pip_install("numpy")
+    .pip_install("numpy", "tensorboard")
 )
 
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
@@ -319,6 +319,69 @@ def _run_with_periodic_sync(
         raise subprocess.CalledProcessError(return_code, command)
 
 
+def _latest_training_scalar(
+    logs_dir: object,
+    run_name: str,
+    tag: str,
+) -> dict[str, float] | None:
+    from pathlib import Path
+
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+
+    latest: dict[str, float] | None = None
+    for event_path in sorted(Path(logs_dir).glob("**/events.out.tfevents.*")):
+        if run_name not in str(event_path.parent):
+            continue
+        try:
+            accumulator = EventAccumulator(str(event_path), size_guidance={"scalars": 0})
+            accumulator.Reload()
+            if tag not in accumulator.Tags().get("scalars", []):
+                continue
+            scalars = accumulator.Scalars(tag)
+        except Exception as exc:
+            print(f"[WARN] Could not read scalar {tag} from {event_path}: {exc}", flush=True)
+            continue
+        if not scalars:
+            continue
+        scalar = scalars[-1]
+        if latest is None or scalar.step >= latest["step"]:
+            latest = {
+                "step": float(scalar.step),
+                "wall_time": float(scalar.wall_time),
+                "value": float(scalar.value),
+            }
+    return latest
+
+
+def _stage_training_metrics(logs_dir: object, run_name: str) -> dict[str, float | None]:
+    tags = {
+        "reward": "Train/mean_reward",
+        "episode_length": "Train/mean_episode_length",
+        "anchor_pos_terminations": "Episode_Termination/anchor_pos",
+        "anchor_ori_terminations": "Episode_Termination/anchor_ori",
+        "ee_body_pos_terminations": "Episode_Termination/ee_body_pos",
+    }
+    metrics: dict[str, float | None] = {}
+    latest_step = None
+    for key, tag in tags.items():
+        scalar = _latest_training_scalar(logs_dir, run_name, tag)
+        metrics[key] = None if scalar is None else scalar["value"]
+        if scalar is not None:
+            latest_step = scalar["step"]
+    metrics["step"] = latest_step
+    terminations = [
+        metrics.get("anchor_pos_terminations"),
+        metrics.get("anchor_ori_terminations"),
+        metrics.get("ee_body_pos_terminations"),
+    ]
+    metrics["termination_total"] = (
+        None
+        if any(value is None for value in terminations)
+        else float(sum(float(value) for value in terminations if value is not None))
+    )
+    return metrics
+
+
 @app.function(
     image=image,
     volumes={"/outputs": volume},
@@ -343,6 +406,13 @@ def kimolab_bringup(
     curriculum: bool,
     curriculum_stage_iterations: int,
     curriculum_thresholds: str,
+    adaptive_curriculum: bool,
+    adaptive_thresholds: str,
+    adaptive_stage_iterations: int,
+    adaptive_min_episode_length: float,
+    adaptive_min_reward: float,
+    adaptive_max_termination_total: float,
+    adaptive_relax_on_fail: bool,
     reference_hold_seconds: float,
     reference_smoothing_window: int,
     anchor_pos_threshold: float,
@@ -411,6 +481,13 @@ def kimolab_bringup(
         "curriculum": curriculum,
         "curriculum_stage_iterations": curriculum_stage_iterations,
         "curriculum_thresholds": curriculum_thresholds,
+        "adaptive_curriculum": adaptive_curriculum,
+        "adaptive_thresholds": adaptive_thresholds,
+        "adaptive_stage_iterations": adaptive_stage_iterations,
+        "adaptive_min_episode_length": adaptive_min_episode_length,
+        "adaptive_min_reward": adaptive_min_reward,
+        "adaptive_max_termination_total": adaptive_max_termination_total,
+        "adaptive_relax_on_fail": adaptive_relax_on_fail,
         "reference_hold_seconds": reference_hold_seconds,
         "reference_smoothing_window": reference_smoothing_window,
         "anchor_pos_threshold": anchor_pos_threshold,
@@ -611,7 +688,92 @@ def kimolab_bringup(
             )
 
         try:
-            if curriculum:
+            if adaptive_curriculum:
+                threshold_schedule = _parse_threshold_schedule(
+                    adaptive_thresholds or "0.5,1,2,5"
+                )
+                if not threshold_schedule:
+                    raise ValueError("adaptive_thresholds did not contain any thresholds")
+
+                previous_stage_name = None
+                adaptive_history: list[dict[str, object]] = []
+                iterations_remaining = max_iterations
+                selected_threshold = None
+                selected_stage_name = None
+
+                for stage_index, threshold in enumerate(threshold_schedule, start=1):
+                    if iterations_remaining <= 0:
+                        break
+                    threshold_label = _threshold_label(threshold)
+                    iterations = min(adaptive_stage_iterations, iterations_remaining)
+                    stage_name = f"{run_id}_adaptive{stage_index:02d}_{threshold_label}"
+                    metadata["stage"] = f"adaptive_stage{stage_index:02d}_{threshold_label}"
+                    metadata["current_threshold"] = threshold
+                    metadata["current_stage_iterations"] = iterations
+                    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+
+                    run_train_stage(
+                        make_train_cmd(
+                            stage_name,
+                            iterations,
+                            stage_threshold=threshold,
+                            resume_from_run=(
+                                f".*{previous_stage_name}"
+                                if previous_stage_name is not None
+                                else None
+                            ),
+                        )
+                    )
+                    sync_training_artifacts(
+                        f"adaptive_stage{stage_index:02d}_{threshold_label}_complete",
+                        0.0,
+                    )
+                    iterations_remaining -= iterations
+                    stage_metrics = _stage_training_metrics(logs_dir, stage_name)
+                    episode_length = stage_metrics.get("episode_length")
+                    reward = stage_metrics.get("reward")
+                    termination_total = stage_metrics.get("termination_total")
+                    passed = (
+                        episode_length is not None
+                        and float(episode_length) >= adaptive_min_episode_length
+                        and reward is not None
+                        and float(reward) >= adaptive_min_reward
+                        and termination_total is not None
+                        and float(termination_total) <= adaptive_max_termination_total
+                    )
+                    history_entry = {
+                        "stage": stage_index,
+                        "stage_name": stage_name,
+                        "threshold": threshold,
+                        "threshold_label": threshold_label,
+                        "iterations": iterations,
+                        "passed": passed,
+                        **stage_metrics,
+                    }
+                    adaptive_history.append(history_entry)
+                    metadata["adaptive_history"] = adaptive_history
+                    metadata["adaptive_last_stage_passed"] = passed
+                    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+
+                    previous_stage_name = stage_name
+                    if passed:
+                        selected_threshold = threshold
+                        selected_stage_name = stage_name
+                        metadata["adaptive_selected_threshold"] = selected_threshold
+                        metadata["adaptive_selected_stage"] = selected_stage_name
+                        metadata["adaptive_stop_reason"] = "passed_threshold"
+                        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+                        if adaptive_relax_on_fail:
+                            break
+                    elif not adaptive_relax_on_fail:
+                        metadata["adaptive_stop_reason"] = "failed_threshold"
+                        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+                        break
+
+                if selected_stage_name is None:
+                    metadata["adaptive_stop_reason"] = "no_threshold_passed"
+                    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+            elif curriculum:
                 threshold_schedule = _parse_threshold_schedule(curriculum_thresholds)
                 if threshold_schedule:
                     stage_iterations = _split_iterations(
@@ -728,6 +890,13 @@ def main(
     curriculum: bool = False,
     curriculum_stage_iterations: int = 1000,
     curriculum_thresholds: str = "",
+    adaptive_curriculum: bool = False,
+    adaptive_thresholds: str = "",
+    adaptive_stage_iterations: int = 400,
+    adaptive_min_episode_length: float = 220.0,
+    adaptive_min_reward: float = -1000000000.0,
+    adaptive_max_termination_total: float = 1.0,
+    adaptive_relax_on_fail: bool = True,
     reference_hold_seconds: float = 0.0,
     reference_smoothing_window: int = 0,
     anchor_pos_threshold: float = -1.0,
@@ -762,6 +931,13 @@ def main(
         curriculum=curriculum,
         curriculum_stage_iterations=curriculum_stage_iterations,
         curriculum_thresholds=curriculum_thresholds,
+        adaptive_curriculum=adaptive_curriculum,
+        adaptive_thresholds=adaptive_thresholds,
+        adaptive_stage_iterations=adaptive_stage_iterations,
+        adaptive_min_episode_length=adaptive_min_episode_length,
+        adaptive_min_reward=adaptive_min_reward,
+        adaptive_max_termination_total=adaptive_max_termination_total,
+        adaptive_relax_on_fail=adaptive_relax_on_fail,
         reference_hold_seconds=reference_hold_seconds,
         reference_smoothing_window=reference_smoothing_window,
         anchor_pos_threshold=anchor_pos_threshold,

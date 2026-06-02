@@ -47,6 +47,16 @@ def _effective_condition(event_log_name: str, metadata: dict[str, object]) -> tu
     if "stage2_strict" in event_log_name:
         return "curriculum_stage2_strict", False
 
+    adaptive_match = re.search(r"_adaptive(\d+)_(loose|strict|thr[0-9p]+)", event_log_name)
+    if adaptive_match:
+        stage_number, threshold_label = adaptive_match.groups()
+        condition = f"adaptive_stage{int(stage_number):02d}_{threshold_label}"
+        if threshold_label == "loose":
+            return condition, True
+        if threshold_label == "strict":
+            return condition, False
+        return condition, None
+
     schedule_match = re.search(r"_stage(\d+)_(loose|strict|thr[0-9p]+)", event_log_name)
     if schedule_match:
         stage_number, threshold_label = schedule_match.groups()

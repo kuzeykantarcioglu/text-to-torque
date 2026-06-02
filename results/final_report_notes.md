@@ -24,6 +24,10 @@ Termination settings:
   default strict thresholds.
 - Calibrated threshold: squat seed 0; fixed intermediate thresholds selected
   from the gradual-curriculum boundary and trained from scratch.
+- Adaptive threshold calibration: squat seed 0; thresholds 0.5, 1, then 2,
+  automatically advancing when a stage fails an episode-length/termination gate.
+- Reference repair: squat seed 0 strict training with an initial reference hold,
+  smoothing, or both.
 
 Extra runs added on 5/31:
 
@@ -39,6 +43,9 @@ Extra runs added on 6/1:
 - Jump seed 0 loose PPO training for 2000 iterations.
 - Squat seed 0 direct calibrated-threshold PPO runs with fixed thresholds 1 and
   2. These were interrupted around 1200 iterations, but logs/videos were synced.
+- Squat seed 0 adaptive threshold calibration over thresholds 0.5, 1, and 2.
+- Squat seed 0 reference-repair ablation under strict termination: 0.5 s initial
+  hold, smoothing window 7, and hold+smoothing.
 
 ## Main Results
 
@@ -109,6 +116,30 @@ that finite intermediate thresholds can recover squat seed-0 tracking from
 scratch. This is stronger than the curriculum-only story because it is a direct
 training intervention, not just an evaluation sweep.
 
+The adaptive threshold calibration makes the intervention less hand-picked:
+
+- Threshold 0.5: final reward 1.95, episode length 89.31, termination total
+  13.25; rejected by the gate.
+- Threshold 1: final reward 6.48, episode length 219.65, termination total
+  1.38; close, but rejected by the gate.
+- Threshold 2: final reward 10.59, episode length 250.0, termination total 0.0;
+  accepted by the gate.
+
+This automatically rediscovers the same threshold scale that worked in the
+direct calibrated-threshold runs.
+
+The reference-repair ablation is a clean negative result:
+
+- Strict original: reward 0.84, episode length 13.52, termination total 144.88.
+- Hold repair: reward 0.77, episode length 12.88, termination total 144.46.
+- Smooth repair: reward 0.76, episode length 12.66, termination total 145.33.
+- Hold + smooth repair: reward 0.83, episode length 13.14, termination total
+  146.58.
+
+This says the seed-0 squat failure is not fixed by a trivial initial hold or
+low-pass smoothing of the generated reference. The termination boundary is the
+more important lever in these experiments.
+
 The jump loose PPO run is a useful positive hard-prompt result:
 
 - Jump loose: final reward 15.63, episode length 250.0, body-position error
@@ -147,6 +178,10 @@ high joint acceleration.
   curriculum curves.
 - `figures/final_calibrated_threshold_curves.png`: loose/strict, gradual
   intermediate thresholds, and direct fixed-threshold squat curves.
+- `figures/final_adaptive_calibration_curves.png`: adaptive threshold
+  calibration stages for squat seed 0.
+- `figures/final_reference_repair_curves.png`: strict squat reference-repair
+  ablation.
 - `figures/final_jump_training_curves.png`: loose jump PPO learning curves.
 - `figures/final_video_contact_sheet.png`: thumbnails from final rollout videos.
 - `figures/final_gradual_curriculum_sequence_panel.png`: rollout thumbnails for
@@ -171,13 +206,17 @@ tracking. The strongest claim is:
 > curricula can collapse under strict thresholds. A gradual curriculum localizes
 > the squat seed-0 failure boundary to the final default strict threshold, and
 > direct calibrated-threshold training recovers full-horizon squat behavior from
-> scratch. A loose jump run shows that some harder generated references are
-> still learnable.
+> scratch. An adaptive calibration procedure automatically rejects thresholds
+> 0.5 and 1 before selecting threshold 2. Simple reference smoothing/initial-hold
+> repairs do not rescue strict squat training, while a loose jump run shows that
+> some harder generated references are still learnable.
 
 Avoid claiming that the curriculum broadly improves learning. The current data
 supports "implemented and tested; negative for final strict performance, but
 useful for diagnosing where strict termination becomes too brittle." The direct
 calibrated-threshold run is the positive method result.
+The adaptive calibration run is the strongest method result because it turns the
+hand-picked calibrated threshold into a simple automatic procedure.
 
 ## AI Tools Disclosure Draft
 

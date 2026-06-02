@@ -1,0 +1,5 @@
+condition,final_reward,final_episode_length,body_pos_error,joint_pos_error,anchor_pos_terminations,anchor_ori_terminations,ee_body_pos_terminations,termination_total,steps_per_second
+Strict original,0.837295,13.52,0.233561,0.483804,71.2917,0,73.5833,144.875,31223
+Hold repair,0.766874,12.88,0.230707,0.471127,70.875,0,73.5833,144.458,30514
+Smooth repair,0.76042,12.66,0.231297,0.475255,71.125,0,74.2083,145.333,31392
+Hold + smooth repair,0.829292,13.14,0.231431,0.486701,72.5,0,74.0833,146.583,30572

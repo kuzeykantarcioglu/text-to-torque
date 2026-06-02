@@ -92,10 +92,42 @@ CONDITION_COLORS = {
     "Threshold 2": "#b279a2",
     "Gradual thr=1": "#e45756",
     "Gradual thr=2": "#f58518",
+    "Adaptive thr=0.5": "#e45756",
+    "Adaptive thr=1": "#f58518",
+    "Adaptive thr=2": "#54a24b",
+    "Strict original": "#f58518",
+    "Hold repair": "#4c78a8",
+    "Smooth repair": "#72b7b2",
+    "Hold + smooth repair": "#54a24b",
 }
 
 GRADUAL_CURRICULUM_RUN = "1780296901_a-person-squats-down-and-stands-up_seed0_squat-gradual-curriculum"
 JUMP_LOOSE_RUN = "1780296901_a-person-jumps_seed0_jump-loose-extra"
+ADAPTIVE_CALIBRATION_RUN = (
+    "1780361838_a-person-squats-down-and-stands-up_seed0_squat-adaptive-calibrate"
+)
+REFERENCE_REPAIR_RUNS = [
+    {
+        "run_id": "1780201117_a-person-squats-down-and-stands-up_seed0_strict",
+        "condition": "strict",
+        "display_condition": "Strict original",
+    },
+    {
+        "run_id": "1780362553_a-person-squats-down-and-stands-up_seed0_squat-repair-hold",
+        "condition": "squat-repair-hold",
+        "display_condition": "Hold repair",
+    },
+    {
+        "run_id": "1780362553_a-person-squats-down-and-stands-up_seed0_squat-repair-smooth",
+        "condition": "squat-repair-smooth",
+        "display_condition": "Smooth repair",
+    },
+    {
+        "run_id": "1780362553_a-person-squats-down-and-stands-up_seed0_squat-repair-hold-smooth",
+        "condition": "squat-repair-hold-smooth",
+        "display_condition": "Hold + smooth repair",
+    },
+]
 CALIBRATED_THRESHOLD_RUNS = [
     {
         "run_id": "1780201117_a-person-squats-down-and-stands-up_seed0_loose-video",
@@ -136,6 +168,11 @@ GRADUAL_STAGE_SPECS = [
     ("curriculum_stage05_thr2", "thr=2", "#f58518"),
     ("curriculum_stage06_thr1", "thr=1", "#e45756"),
     ("curriculum_stage07_strict", "strict", "#b279a2"),
+]
+ADAPTIVE_STAGE_SPECS = [
+    ("adaptive_stage01_thr0p5", "thr=0.5", "#e45756"),
+    ("adaptive_stage02_thr1", "thr=1", "#f58518"),
+    ("adaptive_stage03_thr2", "thr=2", "#54a24b"),
 ]
 
 VIDEO_SHEET_SPECS = [
@@ -399,6 +436,121 @@ def _write_gradual_curriculum_table(
     table.to_csv(csv_path, index=False, float_format="%.6g")
     _write_markdown_table(table, md_path)
     return gradual
+
+
+def _write_adaptive_calibration_table(
+    summary: pd.DataFrame,
+    csv_path: Path,
+    md_path: Path,
+) -> pd.DataFrame:
+    rows = []
+    for condition, label, _ in ADAPTIVE_STAGE_SPECS:
+        match = summary[
+            (summary["run_id"] == ADAPTIVE_CALIBRATION_RUN)
+            & (summary["condition"] == condition)
+        ].copy()
+        if match.empty:
+            print(f"[WARN] Missing adaptive calibration row: {condition}")
+            continue
+        row = match.iloc[0].copy()
+        row["stage"] = label
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    adaptive = pd.DataFrame(rows)
+    adaptive["termination_total"] = (
+        adaptive.get("Episode_Termination/anchor_pos", 0).fillna(0)
+        + adaptive.get("Episode_Termination/anchor_ori", 0).fillna(0)
+        + adaptive.get("Episode_Termination/ee_body_pos", 0).fillna(0)
+    )
+    columns = [
+        "stage",
+        "Train/mean_reward",
+        "Train/mean_episode_length",
+        "Metrics/motion/error_body_pos",
+        "Metrics/motion/error_joint_pos",
+        "Episode_Termination/anchor_pos",
+        "Episode_Termination/anchor_ori",
+        "Episode_Termination/ee_body_pos",
+        "termination_total",
+        "Perf/total_fps",
+    ]
+    table = adaptive[columns].rename(
+        columns={
+            "Train/mean_reward": "final_reward",
+            "Train/mean_episode_length": "final_episode_length",
+            "Metrics/motion/error_body_pos": "body_pos_error",
+            "Metrics/motion/error_joint_pos": "joint_pos_error",
+            "Episode_Termination/anchor_pos": "anchor_pos_terminations",
+            "Episode_Termination/anchor_ori": "anchor_ori_terminations",
+            "Episode_Termination/ee_body_pos": "ee_body_pos_terminations",
+            "Perf/total_fps": "steps_per_second",
+        }
+    )
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(csv_path, index=False, float_format="%.6g")
+    _write_markdown_table(table, md_path)
+    return adaptive
+
+
+def _write_reference_repair_table(
+    summary: pd.DataFrame,
+    csv_path: Path,
+    md_path: Path,
+) -> pd.DataFrame:
+    rows = []
+    for spec in REFERENCE_REPAIR_RUNS:
+        match = summary[
+            (summary["run_id"] == spec["run_id"])
+            & (summary["condition"] == spec["condition"])
+        ].copy()
+        if match.empty:
+            print(f"[WARN] Missing reference-repair row: {spec}")
+            continue
+        row = match.iloc[0].copy()
+        row["display_condition"] = spec["display_condition"]
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    repair = pd.DataFrame(rows)
+    repair["termination_total"] = (
+        repair.get("Episode_Termination/anchor_pos", 0).fillna(0)
+        + repair.get("Episode_Termination/anchor_ori", 0).fillna(0)
+        + repair.get("Episode_Termination/ee_body_pos", 0).fillna(0)
+    )
+    columns = [
+        "display_condition",
+        "Train/mean_reward",
+        "Train/mean_episode_length",
+        "Metrics/motion/error_body_pos",
+        "Metrics/motion/error_joint_pos",
+        "Episode_Termination/anchor_pos",
+        "Episode_Termination/anchor_ori",
+        "Episode_Termination/ee_body_pos",
+        "termination_total",
+        "Perf/total_fps",
+    ]
+    table = repair[columns].rename(
+        columns={
+            "display_condition": "condition",
+            "Train/mean_reward": "final_reward",
+            "Train/mean_episode_length": "final_episode_length",
+            "Metrics/motion/error_body_pos": "body_pos_error",
+            "Metrics/motion/error_joint_pos": "joint_pos_error",
+            "Episode_Termination/anchor_pos": "anchor_pos_terminations",
+            "Episode_Termination/anchor_ori": "anchor_ori_terminations",
+            "Episode_Termination/ee_body_pos": "ee_body_pos_terminations",
+            "Perf/total_fps": "steps_per_second",
+        }
+    )
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(csv_path, index=False, float_format="%.6g")
+    _write_markdown_table(table, md_path)
+    return repair
 
 
 def _write_jump_table(summary: pd.DataFrame, csv_path: Path, md_path: Path) -> pd.DataFrame:
@@ -880,6 +1032,47 @@ def main() -> None:
                     "condition": "squat-fixed-thr1",
                     "label": "Threshold 1",
                 },
+            ],
+        )
+
+    adaptive = _write_adaptive_calibration_table(
+        summary,
+        args.results_dir / "adaptive_calibration_summary.csv",
+        args.results_dir / "adaptive_calibration_summary.md",
+    )
+    if not adaptive.empty:
+        _plot_comparison_curves(
+            metrics,
+            args.figures_dir / "final_adaptive_calibration_curves.png",
+            "Squat seed 0: adaptive termination calibration",
+            [
+                {
+                    "run_id": ADAPTIVE_CALIBRATION_RUN,
+                    "condition": condition,
+                    "label": f"Adaptive {label}",
+                    "color": color,
+                }
+                for condition, label, color in ADAPTIVE_STAGE_SPECS
+            ],
+        )
+
+    repair = _write_reference_repair_table(
+        summary,
+        args.results_dir / "reference_repair_summary.csv",
+        args.results_dir / "reference_repair_summary.md",
+    )
+    if not repair.empty:
+        _plot_comparison_curves(
+            metrics,
+            args.figures_dir / "final_reference_repair_curves.png",
+            "Squat seed 0: strict training with repaired references",
+            [
+                {
+                    "run_id": spec["run_id"],
+                    "condition": spec["condition"],
+                    "label": spec["display_condition"],
+                }
+                for spec in REFERENCE_REPAIR_RUNS
             ],
         )
 
