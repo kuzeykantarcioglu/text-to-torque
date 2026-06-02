@@ -250,11 +250,17 @@ checkpoints/
 
 # Heavy experiment artifacts
 results/training_metrics.csv
+results/*.md
 results/videos/
 results/checkpoints/
 experiments/**/logs/
 experiments/**/checkpoints/
 experiments/**/videos/
+
+# Report drafts / generated paper artifacts
+paper/
+*.tex
+media/final_videos/README.md
 
 # Modal / cloud artifacts
 .modal/
