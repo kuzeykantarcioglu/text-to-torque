@@ -353,6 +353,107 @@ figures/final_video_contact_sheet.png
 figures/final_walk_curriculum_curves.png
 ```
 
+## Feasibility-Aware Reference Selection
+
+Generate multiple seeds per prompt and download the resulting references:
+
+```bash
+PROMPT_IDS=squat_stand,jump,roll,turn_walk \
+MAX_PARALLEL=4 \
+RENDER_REFERENCE=true \
+scripts/launch_seed_sweep.sh prompts/seed_sweep_suite.csv
+
+scripts/download_modal_matching.sh 'seed-sweep$' motions/from_modal
+```
+
+Recompute diagnostics, rank references, and pick best/worst seeds:
+
+```bash
+python scripts/compute_diagnostics.py \
+  --input-dir motions/from_modal \
+  --output-csv results/motion_diagnostics.csv \
+  --output-md results/motion_diagnostics.md
+
+python scripts/rank_references.py \
+  --diagnostics-csv results/motion_diagnostics.csv \
+  --run-label-filter seed-sweep \
+  --rankings-csv results/reference_rankings.csv \
+  --selected-csv results/selected_references.csv
+```
+
+Run short strict PPO probes on diagnostic best and worst seeds:
+
+```bash
+MODAL_GPU=H100 \
+MAX_PARALLEL=4 \
+MAX_ITERATIONS=150 \
+NUM_ENVS=256 \
+SAVE_INTERVAL=75 \
+TRAIN_VIDEO_INTERVAL=2000 \
+TRAIN_VIDEO_LENGTH=180 \
+ARTIFACT_SYNC_INTERVAL_S=45 \
+MOTION_IDS=squat_stand,jump,roll \
+SELECTIONS=best,worst \
+TERMINATION_MODE=strict \
+scripts/launch_selected_training.sh results/selected_references.csv
+```
+
+Run temporal repair by slowing the worst diagnostic seeds to 2x duration:
+
+```bash
+MODAL_GPU=H100 \
+LABEL_PREFIX=temporal \
+REFERENCE_TIME_SCALE=2.0 \
+MAX_PARALLEL=3 \
+MAX_ITERATIONS=150 \
+NUM_ENVS=256 \
+SAVE_INTERVAL=75 \
+TRAIN_VIDEO_INTERVAL=2000 \
+TRAIN_VIDEO_LENGTH=360 \
+ARTIFACT_SYNC_INTERVAL_S=45 \
+MOTION_IDS=squat_stand,jump,roll \
+SELECTIONS=worst \
+TERMINATION_MODE=strict \
+scripts/launch_selected_training.sh results/selected_references.csv
+```
+
+Export the compact comparison tables and figures after downloading the runs:
+
+```bash
+python scripts/export_training_metrics.py \
+  --run-prefix <bestofn_run_prefix> \
+  --metrics-csv results/bestofn_training_metrics.csv \
+  --summary-csv results/bestofn_training_summary_raw.csv \
+  --summary-md results/bestofn_training_summary_raw.md \
+  --figure figures/final_bestofn_training_curves.png
+
+python scripts/export_training_metrics.py \
+  --run-prefix <temporal_run_prefix> \
+  --metrics-csv results/temporal_training_metrics.csv \
+  --summary-csv results/temporal_training_summary_raw.csv \
+  --summary-md results/temporal_training_summary_raw.md \
+  --figure figures/final_temporal_training_curves.png
+
+python scripts/make_feasibility_story.py
+python scripts/make_visual_assets.py
+```
+
+Key outputs from this feasibility-aware workflow:
+
+```text
+results/reference_rankings.csv
+results/selected_references.csv
+results/bestofn_outcome_summary.csv
+results/temporal_repair_summary.csv
+results/intervention_delta_summary.csv
+figures/final_reference_selection_scores.png
+figures/final_bestofn_training_summary.png
+figures/final_temporal_repair_summary.png
+figures/final_intervention_delta_summary.png
+figures/final_bestofn_rollout_panel.png
+figures/final_temporal_repair_sequence_panel.png
+```
+
 Create additional poster/report visual panels and copy renamed local rollout
 videos:
 
@@ -366,6 +467,8 @@ This writes:
 figures/final_walk_sequence_panel.png
 figures/final_squat_sequence_panel.png
 figures/final_gesture_sequence_panel.png
+figures/final_bestofn_rollout_panel.png
+figures/final_temporal_repair_sequence_panel.png
 media/final_videos/*.mp4
 ```
 
@@ -373,14 +476,15 @@ The MP4 files are ignored by git and should be shared separately if needed.
 
 ## Final Report Draft
 
-The LaTeX final report draft is:
+Report drafts are local-only artifacts and are ignored by git. If you keep a
+local LaTeX draft, put it under:
 
 ```text
 paper/final_report.tex
 ```
 
-It uses the generated figures under `figures/`. A local LaTeX distribution is
-needed to compile it, for example:
+It can use the generated figures under `figures/`. A local LaTeX distribution
+is needed to compile it, for example:
 
 ```bash
 cd paper

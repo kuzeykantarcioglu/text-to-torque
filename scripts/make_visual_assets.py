@@ -63,6 +63,54 @@ VIDEO_SPECS = {
         "label": "Jump loose",
         "path": Path("motions/from_modal/1780296901_a-person-jumps_seed0_jump-loose-extra/logs/rsl_rl/g1_tracking/2026-06-01_07-00-29_1780296901_a-person-jumps_seed0_jump-loose-extra/videos/train/rl-video-step-40000.mp4"),
     },
+    "bestofn_jump_best": {
+        "label": "Jump best seed",
+        "path_glob": "motions/from_modal/*bestofn-jump-best-strict/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "bestofn_jump_worst": {
+        "label": "Jump worst seed",
+        "path_glob": "motions/from_modal/*bestofn-jump-worst-stric*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "bestofn_roll_best": {
+        "label": "Roll best seed",
+        "path_glob": "motions/from_modal/*bestofn-roll-best-strict/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "bestofn_roll_worst": {
+        "label": "Roll worst seed",
+        "path_glob": "motions/from_modal/*bestofn-roll-worst-stric*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "bestofn_squat_best": {
+        "label": "Squat best seed",
+        "path_glob": "motions/from_modal/*bestofn-squat-stand-best/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "bestofn_squat_worst": {
+        "label": "Squat worst seed",
+        "path_glob": "motions/from_modal/*bestofn-squat-stand-wors*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "temporal_jump_worst": {
+        "label": "Jump worst seed",
+        "path_glob": "motions/from_modal/*bestofn-jump-worst-stric*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "temporal_jump_slow": {
+        "label": "Jump worst, 2x duration",
+        "path_glob": "motions/from_modal/*temporal-jump-worst-scal*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "temporal_roll_worst": {
+        "label": "Roll worst seed",
+        "path_glob": "motions/from_modal/*bestofn-roll-worst-stric*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "temporal_roll_slow": {
+        "label": "Roll worst, 2x duration",
+        "path_glob": "motions/from_modal/*temporal-roll-worst-scal*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "temporal_squat_worst": {
+        "label": "Squat worst seed",
+        "path_glob": "motions/from_modal/*bestofn-squat-stand-wors*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
+    "temporal_squat_slow": {
+        "label": "Squat worst, 2x duration",
+        "path_glob": "motions/from_modal/*temporal-squat-stand-wor*/logs/rsl_rl/g1_tracking/*/videos/train/rl-video-step-2000.mp4",
+    },
 }
 
 HARD_REFERENCE_VIDEO_SPECS = {
@@ -119,6 +167,32 @@ PANELS = [
         "filename": "final_jump_sequence_panel.png",
         "title": "Jump rollout under loose termination",
         "rows": ["jump_loose"],
+        "times": [0.2, 0.8, 1.4, 2.0],
+    },
+    {
+        "filename": "final_bestofn_rollout_panel.png",
+        "title": "Diagnostic seed selection changes early strict PPO behavior",
+        "rows": [
+            "bestofn_jump_best",
+            "bestofn_jump_worst",
+            "bestofn_roll_best",
+            "bestofn_roll_worst",
+            "bestofn_squat_best",
+            "bestofn_squat_worst",
+        ],
+        "times": [0.2, 0.8, 1.4, 2.0],
+    },
+    {
+        "filename": "final_temporal_repair_sequence_panel.png",
+        "title": "Temporal repair on worst diagnostic seeds",
+        "rows": [
+            "temporal_jump_worst",
+            "temporal_jump_slow",
+            "temporal_roll_worst",
+            "temporal_roll_slow",
+            "temporal_squat_worst",
+            "temporal_squat_slow",
+        ],
         "times": [0.2, 0.8, 1.4, 2.0],
     },
 ]

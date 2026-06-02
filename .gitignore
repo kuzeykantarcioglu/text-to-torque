@@ -250,6 +250,7 @@ checkpoints/
 
 # Heavy experiment artifacts
 results/training_metrics.csv
+results/*_training_metrics.csv
 results/*.md
 results/videos/
 results/checkpoints/

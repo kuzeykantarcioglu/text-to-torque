@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
+
 import modal
 
 
 APP_NAME = "text-to-torque-kimolab"
 VOLUME_NAME = "text-to-torque-results"
 KIMOLAB_DIR = "/root/kimolab"
+GPU_TYPE = os.environ.get("MODAL_GPU", "A100-40GB")
 
 
 app = modal.App(APP_NAME)
@@ -386,7 +389,7 @@ def _stage_training_metrics(logs_dir: object, run_name: str) -> dict[str, float 
     image=image,
     volumes={"/outputs": volume},
     secrets=[modal.Secret.from_name("huggingface"), modal.Secret.from_name("wandb")],
-    gpu="A100-40GB",
+    gpu=GPU_TYPE,
     timeout=60 * 60 * 8,
 )
 def kimolab_bringup(
@@ -415,6 +418,7 @@ def kimolab_bringup(
     adaptive_relax_on_fail: bool,
     reference_hold_seconds: float,
     reference_smoothing_window: int,
+    reference_time_scale: float,
     anchor_pos_threshold: float,
     anchor_ori_threshold: float,
     ee_body_pos_threshold: float,
@@ -490,6 +494,7 @@ def kimolab_bringup(
         "adaptive_relax_on_fail": adaptive_relax_on_fail,
         "reference_hold_seconds": reference_hold_seconds,
         "reference_smoothing_window": reference_smoothing_window,
+        "reference_time_scale": reference_time_scale,
         "anchor_pos_threshold": anchor_pos_threshold,
         "anchor_ori_threshold": anchor_ori_threshold,
         "ee_body_pos_threshold": ee_body_pos_threshold,
@@ -497,6 +502,7 @@ def kimolab_bringup(
         "train_video_length": train_video_length,
         "train_video_interval": train_video_interval,
         "artifact_sync_interval_s": artifact_sync_interval_s,
+        "modal_gpu": GPU_TYPE,
         "stage": "started",
     }
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
@@ -521,6 +527,7 @@ def kimolab_bringup(
     )
 
     conversion_csv_path = csv_path
+    reference_base_duration = duration
     if reference_hold_seconds > 0.0 or reference_smoothing_window > 1:
         conditioning = _condition_motion_csv(
             csv_path,
@@ -530,8 +537,18 @@ def kimolab_bringup(
             input_fps=30.0,
         )
         conversion_csv_path = conditioned_csv_path
+        reference_base_duration = float(conditioning["conditioned_frames"]) / 30.0
         metadata["reference_conditioning"] = conditioning
         metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+
+    if reference_time_scale <= 0.0:
+        raise ValueError("reference_time_scale must be positive")
+    conversion_input_fps = 30.0 / reference_time_scale
+    effective_duration = reference_base_duration * reference_time_scale
+    metadata["reference_base_duration"] = reference_base_duration
+    metadata["conversion_input_fps"] = conversion_input_fps
+    metadata["effective_duration"] = effective_duration
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
 
     _run(
         [
@@ -543,7 +560,7 @@ def kimolab_bringup(
             "--output-name",
             f"{_slugify(prompt)}_seed{seed}",
             "--input-fps",
-            "30",
+            str(conversion_input_fps),
             "--output-fps",
             str(output_fps),
             "--render",
@@ -579,7 +596,7 @@ def kimolab_bringup(
     volume.commit()
 
     if train:
-        episode_length_s = duration + 1.0
+        episode_length_s = effective_duration + 1.0
         logs_dir = work_dir / "logs"
 
         def sync_training_artifacts(
@@ -899,6 +916,7 @@ def main(
     adaptive_relax_on_fail: bool = True,
     reference_hold_seconds: float = 0.0,
     reference_smoothing_window: int = 0,
+    reference_time_scale: float = 1.0,
     anchor_pos_threshold: float = -1.0,
     anchor_ori_threshold: float = -1.0,
     ee_body_pos_threshold: float = -1.0,
@@ -940,6 +958,7 @@ def main(
         adaptive_relax_on_fail=adaptive_relax_on_fail,
         reference_hold_seconds=reference_hold_seconds,
         reference_smoothing_window=reference_smoothing_window,
+        reference_time_scale=reference_time_scale,
         anchor_pos_threshold=anchor_pos_threshold,
         anchor_ori_threshold=anchor_ori_threshold,
         ee_body_pos_threshold=ee_body_pos_threshold,
