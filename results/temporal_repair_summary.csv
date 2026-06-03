@@ -1,0 +1,7 @@
+motion_id,motion,setting,time_scale,run_id,run_label,final_reward,episode_length,body_pos_error,joint_pos_error,termination_total,steps_per_second
+jump,Jump,original speed,1,1780421013_a-person-jumps_seed4_bestofn-jump-worst-stric,bestofn-jump-worst-strict,-0.193442,5.14,0.0807558,2.01682,52.1667,7529
+jump,Jump,2x duration,2,1780422433_a-person-jumps_seed4_temporal-jump-worst-scal,temporal-jump-worst-scale-2p0-strict,-0.185391,5.84,0.0865236,2.09445,44.0417,9855
+roll,Roll,original speed,1,1780421013_a-person-rolls-forward-on-the-ground_seed1_bestofn-roll-worst-stric,bestofn-roll-worst-strict,-0.0726734,4.52,0.0840992,1.78452,58.7917,7015
+roll,Roll,2x duration,2,1780422433_a-person-rolls-forward-on-the-ground_seed1_temporal-roll-worst-scal,temporal-roll-worst-scale-2p0-strict,-0.0588501,4.19,0.079665,1.73517,60.2083,9072
+squat_stand,Squat,original speed,1,1780421562_a-person-squats-down-and-stands-up_seed1_bestofn-squat-stand-wors,bestofn-squat_stand-worst-strict,-0.518573,4.58,0.0986021,2.48942,57.4583,9435
+squat_stand,Squat,2x duration,2,1780422433_a-person-squats-down-and-stands-up_seed1_temporal-squat-stand-wor,temporal-squat_stand-worst-scale-2p0-strict,-0.570322,4.52,0.101506,2.46497,57.9583,9050

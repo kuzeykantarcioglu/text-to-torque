@@ -1,0 +1,5 @@
+motion,best_seed,best_score,worst_seed,worst_score,seed_score_spread,recommended_recipe
+Jump,3,-0.076849,4,5.02535,5.1022,adaptive termination
+Roll,3,0.542833,1,9.03865,8.49582,adaptive termination
+Squat,3,-5.79229,1,-1.23427,4.55802,strict PPO
+Turn + walk,0,-3.99266,1,-2.74526,1.2474,strict PPO

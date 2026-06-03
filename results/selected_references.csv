@@ -1,0 +1,10 @@
+motion_id,difficulty,prompt,duration_requested_s,seed,selection,run_id
+jump,difficult,A person jumps,4.0,3,best,1780419653_a-person-jumps_seed3_seed-sweep
+jump,difficult,A person jumps,4.0,4,worst,1780419653_a-person-jumps_seed4_seed-sweep
+roll,difficult,A person rolls forward on the ground,4.0,3,best,1780419947_a-person-rolls-forward-on-the-ground_seed3_seed-sweep
+roll,difficult,A person rolls forward on the ground,4.0,4,random,1780419947_a-person-rolls-forward-on-the-ground_seed4_seed-sweep
+roll,difficult,A person rolls forward on the ground,4.0,1,worst,1780419947_a-person-rolls-forward-on-the-ground_seed1_seed-sweep
+squat_stand,medium,A person squats down and stands up,4.0,3,best,1780419585_a-person-squats-down-and-stands-up_seed3_seed-sweep
+squat_stand,medium,A person squats down and stands up,4.0,1,worst,1780419585_a-person-squats-down-and-stands-up_seed1_seed-sweep
+turn_walk,medium,A person turns around and walks forward,4.0,0,best,1780420254_a-person-turns-around-and-walks-forward_seed0_seed-sweep
+turn_walk,medium,A person turns around and walks forward,4.0,1,worst,1780420254_a-person-turns-around-and-walks-forward_seed1_seed-sweep

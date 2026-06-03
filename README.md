@@ -48,7 +48,7 @@ Install local dependencies:
 
 ```bash
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install modal wandb numpy pandas matplotlib scipy pyyaml tqdm rich ipython jupyter black ruff pytest
+python -m pip install modal wandb numpy pandas matplotlib scipy pyyaml tqdm rich ipython jupyter tensorboard black ruff pytest
 ```
 
 Verify the local environment:
@@ -56,7 +56,7 @@ Verify the local environment:
 ```bash
 python --version
 python -m pip --version
-python -c "import modal, wandb, numpy, pandas, matplotlib, yaml, tqdm; print('local env good')"
+python -c "import modal, wandb, numpy, pandas, matplotlib, yaml, tqdm, tensorboard; print('local env good')"
 ```
 
 Set up Modal:
@@ -167,6 +167,17 @@ For longer jobs, use detached mode:
 modal run --detach modal_kimolab.py --train
 ```
 
+`modal_kimolab.py` defaults to a normal remote call so `modal run --detach`
+can keep the training function alive after the local entrypoint exits. The
+`--spawn` mode is useful only for short tests; do not use it for long training.
+
+During training, `modal_kimolab.py` periodically syncs `logs/` to the Modal
+Volume so checkpoints and train videos survive a local terminal disconnect or a
+later cancellation. Control this cadence with `--artifact-sync-interval-s`
+(default: `120` seconds). This only controls persistence; checkpoint frequency
+is still controlled by `--save-interval`, and train video frequency is still
+controlled by `--train-video-interval`.
+
 ## Downloading Modal Outputs
 
 Generated motions, videos, logs, and checkpoints are saved to the Modal Volume:
@@ -227,6 +238,8 @@ modal run --detach modal_kimolab.py --prompt "A person walks forward" --train --
 #   --max-iterations 20      PPO iterations (default 20)
 #   --num-envs 128           parallel envs (default 128)
 #   --save-interval 10       checkpoint every N iters
+#   --artifact-sync-interval-s 120
+#                            copy logs/checkpoints/videos to the Modal volume
 #   --disable-terminations   relax early termination (default True)
 #   --duration 4.0           motion length in seconds
 #   --seed 0                 random seed
@@ -242,4 +255,239 @@ modal volume get text-to-torque-results kimolab/<run_id> ./motions/from_modal/ki
 
 # Fresh terminal setup
 conda activate text-to-torque && set -a && source .env && set +a
+```
+
+## Final Project Workflow
+
+Generate the reference prompt suite in parallel on Modal:
+
+```bash
+conda activate text-to-torque
+scripts/launch_reference_suite.sh
+```
+
+Launch a small loose-termination PPO suite:
+
+```bash
+conda activate text-to-torque
+MAX_ITERATIONS=2000 \
+NUM_ENVS=1024 \
+PROMPT_IDS=walk_forward,wave_right,tap_head,squat_stand \
+TERMINATION_MODE=loose \
+scripts/launch_training_suite.sh
+```
+
+Run a strict-vs-loose comparison on one or two prompts:
+
+```bash
+TERMINATION_MODE=strict PROMPT_IDS=walk_forward,tap_head scripts/launch_training_suite.sh
+TERMINATION_MODE=loose PROMPT_IDS=walk_forward,tap_head scripts/launch_training_suite.sh
+```
+
+Download a completed Modal run:
+
+```bash
+scripts/download_modal_run.sh <run_id>
+```
+
+Compute reference-motion diagnostics from downloaded runs:
+
+```bash
+python scripts/compute_diagnostics.py
+python scripts/plot_diagnostics.py
+```
+
+This writes:
+
+```text
+results/motion_diagnostics.csv
+results/motion_diagnostics.md
+figures/motion_diagnostics.png
+```
+
+Export training curves from downloaded TensorBoard logs:
+
+```bash
+python scripts/export_training_metrics.py --run-prefix <run_id_prefix>
+```
+
+For the current final experiment set:
+
+```bash
+python scripts/export_training_metrics.py \
+  --run-prefix 1780189976 \
+  --run-prefix 1780200983 \
+  --run-prefix 1780201117 \
+  --run-prefix 1780201118 \
+  --run-prefix 1780201423
+```
+
+This writes:
+
+```text
+results/training_metrics.csv
+results/training_summary.csv
+results/training_summary.md
+figures/training_curves.png
+```
+
+`results/training_metrics.csv` is the raw TensorBoard scalar dump and is ignored
+by git because it can be large. The summary CSV/Markdown files are small enough
+to commit.
+
+Create final-report figures and a compact final summary table:
+
+```bash
+python scripts/make_final_figures.py
+```
+
+This writes:
+
+```text
+results/final_experiment_summary.csv
+results/final_experiment_summary.md
+figures/final_outcome_summary.png
+figures/final_reference_diagnostics.png
+figures/final_squat_termination_curves.png
+figures/final_video_contact_sheet.png
+figures/final_walk_curriculum_curves.png
+```
+
+## Feasibility-Aware Reference Selection
+
+Generate multiple seeds per prompt and download the resulting references:
+
+```bash
+PROMPT_IDS=squat_stand,jump,roll,turn_walk \
+MAX_PARALLEL=4 \
+RENDER_REFERENCE=true \
+scripts/launch_seed_sweep.sh prompts/seed_sweep_suite.csv
+
+scripts/download_modal_matching.sh 'seed-sweep$' motions/from_modal
+```
+
+Recompute diagnostics, rank references, and pick best/worst seeds:
+
+```bash
+python scripts/compute_diagnostics.py \
+  --input-dir motions/from_modal \
+  --output-csv results/motion_diagnostics.csv \
+  --output-md results/motion_diagnostics.md
+
+python scripts/rank_references.py \
+  --diagnostics-csv results/motion_diagnostics.csv \
+  --run-label-filter seed-sweep \
+  --rankings-csv results/reference_rankings.csv \
+  --selected-csv results/selected_references.csv
+```
+
+Run short strict PPO probes on diagnostic best and worst seeds:
+
+```bash
+MODAL_GPU=H100 \
+MAX_PARALLEL=4 \
+MAX_ITERATIONS=150 \
+NUM_ENVS=256 \
+SAVE_INTERVAL=75 \
+TRAIN_VIDEO_INTERVAL=2000 \
+TRAIN_VIDEO_LENGTH=180 \
+ARTIFACT_SYNC_INTERVAL_S=45 \
+MOTION_IDS=squat_stand,jump,roll \
+SELECTIONS=best,worst \
+TERMINATION_MODE=strict \
+scripts/launch_selected_training.sh results/selected_references.csv
+```
+
+Run temporal repair by slowing the worst diagnostic seeds to 2x duration:
+
+```bash
+MODAL_GPU=H100 \
+LABEL_PREFIX=temporal \
+REFERENCE_TIME_SCALE=2.0 \
+MAX_PARALLEL=3 \
+MAX_ITERATIONS=150 \
+NUM_ENVS=256 \
+SAVE_INTERVAL=75 \
+TRAIN_VIDEO_INTERVAL=2000 \
+TRAIN_VIDEO_LENGTH=360 \
+ARTIFACT_SYNC_INTERVAL_S=45 \
+MOTION_IDS=squat_stand,jump,roll \
+SELECTIONS=worst \
+TERMINATION_MODE=strict \
+scripts/launch_selected_training.sh results/selected_references.csv
+```
+
+Export the compact comparison tables and figures after downloading the runs:
+
+```bash
+python scripts/export_training_metrics.py \
+  --run-prefix <bestofn_run_prefix> \
+  --metrics-csv results/bestofn_training_metrics.csv \
+  --summary-csv results/bestofn_training_summary_raw.csv \
+  --summary-md results/bestofn_training_summary_raw.md \
+  --figure figures/final_bestofn_training_curves.png
+
+python scripts/export_training_metrics.py \
+  --run-prefix <temporal_run_prefix> \
+  --metrics-csv results/temporal_training_metrics.csv \
+  --summary-csv results/temporal_training_summary_raw.csv \
+  --summary-md results/temporal_training_summary_raw.md \
+  --figure figures/final_temporal_training_curves.png
+
+python scripts/make_feasibility_story.py
+python scripts/make_visual_assets.py
+```
+
+Key outputs from this feasibility-aware workflow:
+
+```text
+results/reference_rankings.csv
+results/selected_references.csv
+results/bestofn_outcome_summary.csv
+results/temporal_repair_summary.csv
+results/intervention_delta_summary.csv
+figures/final_reference_selection_scores.png
+figures/final_bestofn_training_summary.png
+figures/final_temporal_repair_summary.png
+figures/final_intervention_delta_summary.png
+figures/final_bestofn_rollout_panel.png
+figures/final_temporal_repair_sequence_panel.png
+```
+
+Create additional poster/report visual panels and copy renamed local rollout
+videos:
+
+```bash
+python scripts/make_visual_assets.py
+```
+
+This writes:
+
+```text
+figures/final_walk_sequence_panel.png
+figures/final_squat_sequence_panel.png
+figures/final_gesture_sequence_panel.png
+figures/final_bestofn_rollout_panel.png
+figures/final_temporal_repair_sequence_panel.png
+media/final_videos/*.mp4
+```
+
+The MP4 files are ignored by git and should be shared separately if needed.
+
+## Final Report Draft
+
+Report drafts are local-only artifacts and are ignored by git. If you keep a
+local LaTeX draft, put it under:
+
+```text
+paper/final_report.tex
+```
+
+It can use the generated figures under `figures/`. A local LaTeX distribution
+is needed to compile it, for example:
+
+```bash
+cd paper
+pdflatex final_report.tex
+pdflatex final_report.tex
 ```

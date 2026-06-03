@@ -1,0 +1,25 @@
+prompt_id,difficulty,prompt,duration,seed,notes
+walk_forward_s0,easy,A person walks forward,4.0,0,Seed sweep sanity check.
+walk_forward_s1,easy,A person walks forward,4.0,1,Seed sweep sanity check.
+walk_forward_s2,easy,A person walks forward,4.0,2,Seed sweep sanity check.
+tap_head_s0,easy,A person taps themselves on the head,4.0,0,Upper-body gesture seed sweep.
+tap_head_s1,easy,A person taps themselves on the head,4.0,1,Upper-body gesture seed sweep.
+tap_head_s2,easy,A person taps themselves on the head,4.0,2,Upper-body gesture seed sweep.
+squat_stand_s0,medium,A person squats down and stands up,4.0,0,Root-height-heavy seed sweep.
+squat_stand_s1,medium,A person squats down and stands up,4.0,1,Root-height-heavy seed sweep.
+squat_stand_s2,medium,A person squats down and stands up,4.0,2,Root-height-heavy seed sweep.
+squat_stand_s3,medium,A person squats down and stands up,4.0,3,Root-height-heavy seed sweep.
+squat_stand_s4,medium,A person squats down and stands up,4.0,4,Root-height-heavy seed sweep.
+turn_walk_s0,medium,A person turns around and walks forward,4.0,0,Rotation plus locomotion seed sweep.
+turn_walk_s1,medium,A person turns around and walks forward,4.0,1,Rotation plus locomotion seed sweep.
+turn_walk_s2,medium,A person turns around and walks forward,4.0,2,Rotation plus locomotion seed sweep.
+jump_s0,difficult,A person jumps,4.0,0,Ballistic/contact-heavy seed sweep.
+jump_s1,difficult,A person jumps,4.0,1,Ballistic/contact-heavy seed sweep.
+jump_s2,difficult,A person jumps,4.0,2,Ballistic/contact-heavy seed sweep.
+jump_s3,difficult,A person jumps,4.0,3,Ballistic/contact-heavy seed sweep.
+jump_s4,difficult,A person jumps,4.0,4,Ballistic/contact-heavy seed sweep.
+roll_s0,difficult,A person rolls forward on the ground,4.0,0,Acrobatic/ground-contact seed sweep.
+roll_s1,difficult,A person rolls forward on the ground,4.0,1,Acrobatic/ground-contact seed sweep.
+roll_s2,difficult,A person rolls forward on the ground,4.0,2,Acrobatic/ground-contact seed sweep.
+roll_s3,difficult,A person rolls forward on the ground,4.0,3,Acrobatic/ground-contact seed sweep.
+roll_s4,difficult,A person rolls forward on the ground,4.0,4,Acrobatic/ground-contact seed sweep.

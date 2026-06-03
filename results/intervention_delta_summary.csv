@@ -1,0 +1,7 @@
+motion_id,motion,intervention,baseline,candidate,reward_delta,episode_length_delta,body_pos_error_delta,joint_pos_error_delta,termination_total_delta
+jump,Jump,2x duration vs original speed,original speed,2x duration,0.00805123,0.7,0.00576784,0.0776372,-8.125
+roll,Roll,2x duration vs original speed,original speed,2x duration,0.0138233,-0.33,-0.00443424,-0.049346,1.41667
+squat_stand,Squat,2x duration vs original speed,original speed,2x duration,-0.0517494,-0.0599999,0.0029037,-0.0244524,0.500001
+jump,Jump,diagnostic best seed vs worst seed,worst seed,best seed,0.0549149,-0.00999975,-0.00147048,-0.11216,-1.45834
+roll,Roll,diagnostic best seed vs worst seed,worst seed,best seed,0.020066,-0.12,0.0132907,0.1868,-1.91667
+squat_stand,Squat,diagnostic best seed vs worst seed,worst seed,best seed,0.226724,-0.0999999,-0.00358965,0.0227039,-0.0833321

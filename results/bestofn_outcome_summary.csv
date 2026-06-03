@@ -1,0 +1,7 @@
+motion_id,motion,selection,seed,feasibility_score,run_id,final_reward,episode_length,body_pos_error,joint_pos_error,termination_total,steps_per_second
+jump,Jump,best,3,-0.076849,1780421013_a-person-jumps_seed3_bestofn-jump-best-strict,-0.138527,5.13,0.0792853,1.90466,50.7083,7283
+jump,Jump,worst,4,5.02535,1780421013_a-person-jumps_seed4_bestofn-jump-worst-stric,-0.193442,5.14,0.0807558,2.01682,52.1667,7529
+roll,Roll,best,3,0.542833,1780421013_a-person-rolls-forward-on-the-ground_seed3_bestofn-roll-best-strict,-0.0526074,4.4,0.0973899,1.97132,56.875,10117
+roll,Roll,worst,1,9.03865,1780421013_a-person-rolls-forward-on-the-ground_seed1_bestofn-roll-worst-stric,-0.0726734,4.52,0.0840992,1.78452,58.7917,7015
+squat_stand,Squat,best,3,-5.79229,1780421451_a-person-squats-down-and-stands-up_seed3_bestofn-squat-stand-best,-0.291849,4.48,0.0950124,2.51212,57.375,9442
+squat_stand,Squat,worst,1,-1.23427,1780421562_a-person-squats-down-and-stands-up_seed1_bestofn-squat-stand-wors,-0.518573,4.58,0.0986021,2.48942,57.4583,9435
